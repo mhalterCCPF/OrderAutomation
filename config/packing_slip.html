@@ -85,7 +85,7 @@
         .item-thumbnail {
             width: 50px;
             height: 50px;
-            object-fit: cover;
+            object-fit: contain;
             border-radius: 4px;
             border: 1px solid #ddd;
         }
@@ -172,8 +172,8 @@
             {% for item in order.line_items %}
             <tr>
                 <td class="text-center">
-                    {% if item.preview_url or item.thumbnail_url %}
-                        <img src="{{ item.preview_url or item.thumbnail_url }}" class="item-thumbnail" alt="Item Image">
+                    {% if item.image_path %}
+                        <img src="{{ item.image_path }}" class="item-thumbnail" alt="Item Image">
                     {% else %}
                         <div style="width: 50px; height: 50px; background: #eee; line-height: 50px; font-size: 8pt; color: #888;">No Image</div>
                     {% endif %}

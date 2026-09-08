@@ -50,7 +50,8 @@ class WorkflowOrchestrator:
                     missing_job_items.append(item.get("title") or "Unnamed item")
                     continue
                 design_name = item.get("design") or normalized_order.get("design")
-                self.gcs.download_job_assets(job_id, assets_dir, design_name)
+                downloaded_assets = self.gcs.download_job_assets(job_id, assets_dir, design_name)
+                item["image_path"] = downloaded_assets["packing_slip"].resolve().as_uri()
                 processed_job_ids.add(job_id)
 
             if missing_job_items:
@@ -123,14 +124,6 @@ class WorkflowOrchestrator:
                 ),
                 None,
             )
-            preview_url = next(
-                (
-                    value
-                    for key, value in attributes.items()
-                    if key.strip().lower() in {"_perment_preview", "_permanent_preview"}
-                ),
-                None,
-            )
             item_design = next(
                 (
                     str(value).strip()
@@ -145,7 +138,7 @@ class WorkflowOrchestrator:
                 "variant_title": (raw_item.get("variant") or {}).get("title"),
                 "quantity": raw_item.get("quantity", 1),
                 "custom_attributes": attributes,
-                "preview_url": preview_url,
+                "image_path": "",
                 "job_id": job_id,
                 "design": item_design,
             })
@@ -173,9 +166,10 @@ class WorkflowOrchestrator:
             for print_number in range(1, quantity + 1):
                 copyfile(source_dir / "picture.png", eufymake_dir / "picture.png")
                 copyfile(source_dir / "frame.png", eufymake_dir / "frame.png")
-                self._notify_print(
-                    f"Print file for {job_id}. Print {print_number} of {quantity} total prints."
-                )
+                if quantity > 1:
+                    self._notify_print(
+                        f"Print file for {job_id}. Print {print_number} of {quantity} total prints."
+                    )
 
     def _notify_print(self, message: str):
         if self.print_message_callback:

@@ -48,22 +48,31 @@ class GCSService:
         local_assets_dir: Path,
         design_name: str | None = None,
     ) -> dict[str, Path]:
-        """Download the frame and picture assets for one Job_ID."""
+        """Download the composited packing-slip image and high-resolution print assets."""
         normalized_job_id = str(job_id or "").strip()
         if not normalized_job_id:
             raise ValueError("Cannot download GCS assets without a job ID.")
 
-        design_value = str(design_name or "").strip() or "_design"
+        design_value = str(design_name or "").strip()
+        if not design_value:
+            raise ValueError("Cannot download GCS assets without a design name.")
+        has_png_extension = design_value.lower().endswith(".png")
+        design_stem = design_value[:-4] if has_png_extension else design_value
+        image_name = design_value if has_png_extension else f"{design_value}.png"
         job_dir = local_assets_dir / normalized_job_id
         job_dir.mkdir(parents=True, exist_ok=True)
         asset_paths = {
             "frame": (
-                f"frame2print/{normalized_job_id}/{design_value}_frame_with_transparency.png",
+                f"frame2print/{normalized_job_id}/{design_stem}_frame_with_transparency.png",
                 job_dir / "frame.png",
             ),
             "picture": (
-                f"frame2print/{normalized_job_id}/{design_value}_picture_with_transparency.png",
+                f"frame2print/{normalized_job_id}/{design_stem}_picture_with_transparency.png",
                 job_dir / "picture.png",
+            ),
+            "packing_slip": (
+                f"{normalized_job_id}/CCPFproducts/{image_name}",
+                job_dir / "packing_slip.png",
             ),
         }
 
@@ -75,7 +84,6 @@ class GCSService:
                     raise FileNotFoundError(
                         f"GCS object was not found: gs://{self.bucket.name}/{blob_name}"
                     )
-                destination.parent.mkdir(parents=True, exist_ok=True)
                 blob.download_to_filename(str(destination))
             except FileNotFoundError:
                 raise
