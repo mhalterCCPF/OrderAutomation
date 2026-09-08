@@ -18,6 +18,13 @@ DEFAULT_CONFIG = {
     "downloaded_assets_dir": str(Path.home() / "Desktop" / "DownloadedAssets"),
     "packing_slip_dir": str(Path.home() / "Desktop" / "PackingSlips"),
     "gcs_bucket_name": "my-ccpf-assets-bucket",
+    "company": {
+        "name": "",
+        "address_line1": "",
+        "city_state_zip": "",
+        "email": "",
+        "website": "",
+    },
 }
 
 DEFAULT_SECRETS = {
@@ -37,7 +44,9 @@ def load_config() -> dict:
         return DEFAULT_CONFIG.copy()
     with open(CONFIG_FILE, "r", encoding="utf-8") as f:
         saved_config = json.load(f)
-    return {**DEFAULT_CONFIG, **saved_config}
+    config = {**DEFAULT_CONFIG, **saved_config}
+    config["company"] = {**DEFAULT_CONFIG["company"], **saved_config.get("company", {})}
+    return config
 
 
 def save_config(cfg: dict):

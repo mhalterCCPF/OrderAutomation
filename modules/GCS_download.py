@@ -71,7 +71,7 @@ class GCSService:
                 job_dir / "picture.png",
             ),
             "packing_slip": (
-                f"{normalized_job_id}/CCPFproducts/{image_name}",
+                f"frame2print/{normalized_job_id}/{design_stem}_thumbnail.png",
                 job_dir / "packing_slip.png",
             ),
         }

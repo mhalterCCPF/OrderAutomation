@@ -7,10 +7,11 @@ class ConfigDialog(tk.Toplevel):
     def __init__(self, parent):
         super().__init__(parent)
         self.title("Set Configurations")
-        self.geometry("560x430")
+        self.geometry("560x650")
         self.resizable(True, False)
         
         self.config = load_config()
+        company = self.config.get("company", {})
 
         # Print flags
         self.var_summary = tk.BooleanVar(value=self.config.get("packing_slip", True))
@@ -20,6 +21,11 @@ class ConfigDialog(tk.Toplevel):
         self.var_dir = tk.StringVar(value=self.config.get("eufymake_dir", ""))
         self.var_assets_dir = tk.StringVar(value=self.config.get("downloaded_assets_dir", ""))
         self.var_slip_dir = tk.StringVar(value=self.config.get("packing_slip_dir", ""))
+        self.var_company_name = tk.StringVar(value=company.get("name", ""))
+        self.var_company_address = tk.StringVar(value=company.get("address_line1", ""))
+        self.var_company_city_state_zip = tk.StringVar(value=company.get("city_state_zip", ""))
+        self.var_company_email = tk.StringVar(value=company.get("email", ""))
+        self.var_company_website = tk.StringVar(value=company.get("website", ""))
 
         # UI Layout
         ttk.Checkbutton(self, text="Packing Slip PDF", variable=self.var_summary).pack(anchor="w", padx=20, pady=10)
@@ -31,6 +37,13 @@ class ConfigDialog(tk.Toplevel):
         self._add_directory_row("Downloaded Assets Directory:", self.var_assets_dir)
         self._add_directory_row("Packing Slip Directory:", self.var_slip_dir)
 
+        ttk.Label(self, text="Company Information").pack(anchor="w", padx=20, pady=(12, 2))
+        self._add_text_row("Company Name:", self.var_company_name)
+        self._add_text_row("Company Address:", self.var_company_address)
+        self._add_text_row("City, State, ZIP:", self.var_company_city_state_zip)
+        self._add_text_row("Company Email:", self.var_company_email)
+        self._add_text_row("Company Website:", self.var_company_website)
+
         ttk.Button(self, text="Save Settings", command=self._save).pack(pady=15)
 
     def _add_directory_row(self, label: str, variable: tk.StringVar):
@@ -39,6 +52,10 @@ class ConfigDialog(tk.Toplevel):
         frame.pack(fill="x", padx=20, pady=2)
         ttk.Entry(frame, textvariable=variable).pack(side="left", fill="x", expand=True)
         ttk.Button(frame, text="Browse", command=lambda: self._browse_dir(variable)).pack(side="right", padx=(5, 0))
+
+    def _add_text_row(self, label: str, variable: tk.StringVar):
+        ttk.Label(self, text=label).pack(anchor="w", padx=20, pady=(5, 2))
+        ttk.Entry(self, textvariable=variable).pack(fill="x", padx=20, pady=2)
 
     def _browse_dir(self, variable: tk.StringVar):
         selected = filedialog.askdirectory(initialdir=variable.get())
@@ -53,6 +70,13 @@ class ConfigDialog(tk.Toplevel):
         self.config["eufymake_dir"] = self.var_dir.get()
         self.config["downloaded_assets_dir"] = self.var_assets_dir.get()
         self.config["packing_slip_dir"] = self.var_slip_dir.get()
+        self.config["company"] = {
+            "name": self.var_company_name.get(),
+            "address_line1": self.var_company_address.get(),
+            "city_state_zip": self.var_company_city_state_zip.get(),
+            "email": self.var_company_email.get(),
+            "website": self.var_company_website.get(),
+        }
         save_config(self.config)
         messagebox.showinfo("Success", "Configuration saved.", parent=self)
         self.destroy()
