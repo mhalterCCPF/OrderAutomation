@@ -1,0 +1,4 @@
+requests
+google-cloud-storage
+jinja2
+weasyprint

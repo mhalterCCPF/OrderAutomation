@@ -1,0 +1,8 @@
+.venv/
+__pycache__/
+*.pyc
+
+# secrets - never commit
+secrets.json
+gcp_credentials.json
+app_config.json
