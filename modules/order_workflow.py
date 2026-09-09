@@ -68,6 +68,9 @@ class WorkflowOrchestrator:
                 pdf_path = generate_packing_slip_pdf(normalized_order, self.config)
                 self.shopify.attach_pdf_metafield(order_id, str(pdf_path))
 
+            if self.config.get("fulfillment_status_in_progress", True):
+                self.shopify.start_fulfillment_processing(order_id)
+
             if self.config.get("queue_multi_print_orders", False):
                 self._queue_prints(normalized_order, assets_dir)
 

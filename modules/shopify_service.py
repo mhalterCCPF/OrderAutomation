@@ -167,6 +167,35 @@ class ShopifyService:
         errors = res.get("orderUpdate", {}).get("userErrors", [])
         return len(errors) == 0
 
+    def start_fulfillment_processing(self, order_id: str) -> bool:
+        """Moves the order's open fulfillment orders to the 'IN_PROGRESS' status."""
+        query = """
+        query GetOpenFulfillmentOrders($orderId: ID!) {
+          order(id: $orderId) {
+            fulfillmentOrders(first: 10, query: "status:open") {
+              edges { node { id } }
+            }
+          }
+        }
+        """
+        data = self._execute(query, {"orderId": order_id})
+        edges = data.get("order", {}).get("fulfillmentOrders", {}).get("edges", [])
+
+        mutation = """
+        mutation StartFulfillmentOrder($id: ID!) {
+          fulfillmentOrderStart(id: $id) {
+            fulfillmentOrder { id status }
+            userErrors { field message }
+          }
+        }
+        """
+        success = True
+        for edge in edges:
+            res = self._execute(mutation, {"id": edge["node"]["id"]})
+            errors = res.get("fulfillmentOrderStart", {}).get("userErrors", [])
+            success = success and len(errors) == 0
+        return success
+
     def attach_pdf_metafield(self, order_id: str, pdf_file_path: str):
         """
         Uploads local PDF to Shopify Staged Uploads and links file reference

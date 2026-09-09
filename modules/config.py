@@ -14,6 +14,7 @@ DEFAULT_CONFIG = {
     "print_mailing_label": True,
     "queue_multi_print_orders": False,
     "cleanup": False,
+    "fulfillment_status_in_progress": True,
     "eufymake_dir": str(Path.home() / "Desktop" / "EufyHotFolder"),
     "downloaded_assets_dir": str(Path.home() / "Desktop" / "DownloadedAssets"),
     "packing_slip_dir": str(Path.home() / "Desktop" / "PackingSlips"),

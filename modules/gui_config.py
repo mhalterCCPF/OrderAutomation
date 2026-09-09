@@ -18,6 +18,7 @@ class ConfigDialog(tk.Toplevel):
         self.var_label = tk.BooleanVar(value=self.config.get("print_mailing_label", True))
         self.var_queue = tk.BooleanVar(value=self.config.get("queue_multi_print_orders", False))
         self.var_cleanup = tk.BooleanVar(value=self.config.get("cleanup", False))
+        self.var_fulfillment_in_progress = tk.BooleanVar(value=self.config.get("fulfillment_status_in_progress", True))
         self.var_dir = tk.StringVar(value=self.config.get("eufymake_dir", ""))
         self.var_assets_dir = tk.StringVar(value=self.config.get("downloaded_assets_dir", ""))
         self.var_slip_dir = tk.StringVar(value=self.config.get("packing_slip_dir", ""))
@@ -32,6 +33,7 @@ class ConfigDialog(tk.Toplevel):
         ttk.Checkbutton(self, text="Print Mailing Label", variable=self.var_label).pack(anchor="w", padx=20, pady=5)
         ttk.Checkbutton(self, text="Queue multi-print orders", variable=self.var_queue).pack(anchor="w", padx=20, pady=5)
         ttk.Checkbutton(self, text="Clean-up", variable=self.var_cleanup).pack(anchor="w", padx=20, pady=5)
+        ttk.Checkbutton(self, text="Change fulfillment status to In progress", variable=self.var_fulfillment_in_progress).pack(anchor="w", padx=20, pady=5)
 
         self._add_directory_row("EufyMake Input Directory:", self.var_dir)
         self._add_directory_row("Downloaded Assets Directory:", self.var_assets_dir)
@@ -67,6 +69,7 @@ class ConfigDialog(tk.Toplevel):
         self.config["print_mailing_label"] = self.var_label.get()
         self.config["queue_multi_print_orders"] = self.var_queue.get()
         self.config["cleanup"] = self.var_cleanup.get()
+        self.config["fulfillment_status_in_progress"] = self.var_fulfillment_in_progress.get()
         self.config["eufymake_dir"] = self.var_dir.get()
         self.config["downloaded_assets_dir"] = self.var_assets_dir.get()
         self.config["packing_slip_dir"] = self.var_slip_dir.get()
