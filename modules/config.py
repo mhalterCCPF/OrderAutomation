@@ -11,11 +11,11 @@ GCP_CREDS_FILE = KEYS_DIR / "gcp_credentials.json"
 
 DEFAULT_CONFIG = {
     "packing_slip": True,
+    "add_packing_slip_to_order": True,
     "print_mailing_label": True,
     "queue_multi_print_orders": False,
     "cleanup": False,
-    "fulfillment_status_in_progress": True,
-    "eufymake_dir": str(Path.home() / "Desktop" / "EufyHotFolder"),
+    "eufymake_dir": str(Path.home() / "Desktop" / "PrintFolder"),
     "downloaded_assets_dir": str(Path.home() / "Desktop" / "DownloadedAssets"),
     "packing_slip_dir": str(Path.home() / "Desktop" / "PackingSlips"),
     "gcs_bucket_name": "my-ccpf-assets-bucket",

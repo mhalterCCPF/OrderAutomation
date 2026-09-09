@@ -1,3 +1,5 @@
+import os
+import stat
 from pathlib import Path
 from shutil import copyfile
 from typing import Callable
@@ -24,7 +26,7 @@ class WorkflowOrchestrator:
         order = self.shopify.get_and_lock_next_order()
         if not order:
             return False, "No unprinted orders found."
-        return self._execute_pipeline(order)
+        return self._execute_pipeline(order, mark_in_progress=True)
 
     def process_specific_order(self, order_num: str) -> tuple[bool, str]:
         order = self.shopify.get_specific_order(order_num)
@@ -33,9 +35,9 @@ class WorkflowOrchestrator:
 
         tags = list(set(order.get("tags", []) + ["processing"]))
         self.shopify.update_order_tags(order["id"], tags)
-        return self._execute_pipeline(order)
+        return self._execute_pipeline(order, mark_in_progress=False)
 
-    def _execute_pipeline(self, order: dict) -> tuple[bool, str]:
+    def _execute_pipeline(self, order: dict, mark_in_progress: bool) -> tuple[bool, str]:
         order_name = order["name"].replace("#", "")
         order_id = order["id"]
         processed_job_ids = set()
@@ -66,9 +68,10 @@ class WorkflowOrchestrator:
 
             if self.config.get("packing_slip", False):
                 pdf_path = generate_packing_slip_pdf(normalized_order, self.config)
-                self.shopify.attach_pdf_metafield(order_id, str(pdf_path))
+                if self.config.get("add_packing_slip_to_order", True):
+                    self.shopify.attach_pdf_metafield(order_id, str(pdf_path))
 
-            if self.config.get("fulfillment_status_in_progress", True):
+            if mark_in_progress:
                 self.shopify.start_fulfillment_processing(order_id)
 
             if self.config.get("queue_multi_print_orders", False):
@@ -160,19 +163,34 @@ class WorkflowOrchestrator:
     def _queue_prints(self, order: dict, assets_dir: Path):
         eufymake_dir = Path(self.config["eufymake_dir"])
         eufymake_dir.mkdir(parents=True, exist_ok=True)
+
+        print_jobs = []
         for item in order["line_items"]:
             job_id = item.get("job_id")
             if not job_id:
                 continue
-            source_dir = assets_dir / job_id
             quantity = int(item.get("quantity") or 1)
-            for print_number in range(1, quantity + 1):
-                copyfile(source_dir / "picture.png", eufymake_dir / "picture.png")
-                copyfile(source_dir / "frame.png", eufymake_dir / "frame.png")
-                if quantity > 1:
-                    self._notify_print(
-                        f"Print file for {job_id}. Print {print_number} of {quantity} total prints."
-                    )
+            print_jobs.extend([job_id] * quantity)
+
+        total_prints = len(print_jobs)
+        for print_number, job_id in enumerate(print_jobs, start=1):
+            source_dir = assets_dir / job_id
+            self._force_copy(source_dir / "picture.png", eufymake_dir / "picture.png")
+            self._force_copy(source_dir / "frame.png", eufymake_dir / "frame.png")
+            # Pause between every staged file (across items and quantities) so the
+            # previous print isn't overwritten before it's actually been printed.
+            if print_number < total_prints:
+                self._notify_print(
+                    f"Print file for {job_id} staged ({print_number} of {total_prints} total prints). "
+                    "Print it, then click OK to stage the next print file."
+                )
+
+    @staticmethod
+    def _force_copy(source: Path, destination: Path):
+        if destination.exists():
+            os.chmod(destination, stat.S_IWRITE)
+            destination.unlink()
+        copyfile(source, destination)
 
     def _notify_print(self, message: str):
         if self.print_message_callback:

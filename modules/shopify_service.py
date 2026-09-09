@@ -26,12 +26,17 @@ class ShopifyService:
 
     def get_and_lock_next_order(self) -> dict | None:
         """
-        Queries the oldest unfulfilled order WITHOUT 'processing' or 'files_ready' tags,
-        and atomically appends the 'processing' tag to acquire the lock.
+        Queries open, unfulfilled orders (excluding in-progress ones), 
+        appends a 'processing' tag to lock the order, and returns it.
         """
         query = """
-        query GetNextCandidateOrder {
-          orders(first: 1, query: "fulfillment_status:unfulfilled AND -tag:processing AND -tag:files_ready", sortKey: CREATED_AT) {
+        query GetNextUnfulfilledOrder {
+          orders(
+            first: 10, 
+            query: "status:open AND fulfillment_status:unfulfilled AND -tag:processing AND -tag:files_ready", 
+            sortKey: ORDER_NUMBER, 
+            reverse: false
+          ) {
             edges {
               node {
                 id
@@ -39,6 +44,7 @@ class ShopifyService:
                 legacyResourceId
                 createdAt
                 tags
+                displayFulfillmentStatus
                 email
                 phone
                 customer {
@@ -83,16 +89,21 @@ class ShopifyService:
         """
         data = self._execute(query)
         edges = data.get("orders", {}).get("edges", [])
-        if not edges:
-            return None
 
-        candidate = edges[0]["node"]
-        order_id = candidate["id"]
+        for edge in edges:
+            candidate = edge["node"]
 
-        # Acquire lock by appending 'processing' tag
-        new_tags = candidate["tags"] + ["processing"]
-        if self.update_order_tags(order_id, new_tags):
-            return candidate
+            # Ensure the order is strictly UNFULFILLED (not IN_PROGRESS or PARTIALLY_FULFILLED)
+            if candidate.get("displayFulfillmentStatus") == "UNFULFILLED":
+                order_id = candidate["id"]
+                current_tags = candidate.get("tags", [])
+
+                # Lock the order by appending 'processing'
+                new_tags = current_tags + ["processing"]
+                if self.update_order_tags(order_id, new_tags):
+                    candidate["tags"] = new_tags
+                    return candidate
+
         return None
 
     def get_specific_order(self, order_number: str) -> dict | None:
@@ -182,8 +193,8 @@ class ShopifyService:
         edges = data.get("order", {}).get("fulfillmentOrders", {}).get("edges", [])
 
         mutation = """
-        mutation StartFulfillmentOrder($id: ID!) {
-          fulfillmentOrderStart(id: $id) {
+        mutation ReportFulfillmentOrderProgress($id: ID!) {
+          fulfillmentOrderReportProgress(id: $id) {
             fulfillmentOrder { id status }
             userErrors { field message }
           }
@@ -192,9 +203,10 @@ class ShopifyService:
         success = True
         for edge in edges:
             res = self._execute(mutation, {"id": edge["node"]["id"]})
-            errors = res.get("fulfillmentOrderStart", {}).get("userErrors", [])
+            errors = res.get("fulfillmentOrderReportProgress", {}).get("userErrors", [])
             success = success and len(errors) == 0
         return success
+
 
     def attach_pdf_metafield(self, order_id: str, pdf_file_path: str):
         """
