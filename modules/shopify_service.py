@@ -82,6 +82,9 @@ class ShopifyService:
                     }
                   }
                 }
+                fulfillmentOrders(first: 10, query: "status:open") {
+                  edges { node { id } }
+                }
               }
             }
           }
@@ -97,6 +100,11 @@ class ShopifyService:
             if candidate.get("displayFulfillmentStatus") == "UNFULFILLED":
                 order_id = candidate["id"]
                 current_tags = candidate.get("tags", [])
+
+                # Carry the already-fetched fulfillment order IDs so start_fulfillment_processing
+                # can skip its own lookup query.
+                fulfillment_edges = candidate.pop("fulfillmentOrders", {}).get("edges", [])
+                candidate["open_fulfillment_order_ids"] = [e["node"]["id"] for e in fulfillment_edges]
 
                 # Lock the order by appending 'processing'
                 new_tags = current_tags + ["processing"]
@@ -178,19 +186,25 @@ class ShopifyService:
         errors = res.get("orderUpdate", {}).get("userErrors", [])
         return len(errors) == 0
 
-    def start_fulfillment_processing(self, order_id: str) -> bool:
-        """Moves the order's open fulfillment orders to the 'IN_PROGRESS' status."""
-        query = """
-        query GetOpenFulfillmentOrders($orderId: ID!) {
-          order(id: $orderId) {
-            fulfillmentOrders(first: 10, query: "status:open") {
-              edges { node { id } }
-            }
-          }
-        }
+    def start_fulfillment_processing(self, order_id: str, fulfillment_order_ids: list[str] | None = None) -> bool:
+        """Moves the order's open fulfillment orders to the 'IN_PROGRESS' status.
+
+        Pass already-known `fulfillment_order_ids` (e.g. from get_and_lock_next_order)
+        to skip the lookup query below and save a round-trip.
         """
-        data = self._execute(query, {"orderId": order_id})
-        edges = data.get("order", {}).get("fulfillmentOrders", {}).get("edges", [])
+        if fulfillment_order_ids is None:
+            query = """
+            query GetOpenFulfillmentOrders($orderId: ID!) {
+              order(id: $orderId) {
+                fulfillmentOrders(first: 10, query: "status:open") {
+                  edges { node { id } }
+                }
+              }
+            }
+            """
+            data = self._execute(query, {"orderId": order_id})
+            edges = data.get("order", {}).get("fulfillmentOrders", {}).get("edges", [])
+            fulfillment_order_ids = [edge["node"]["id"] for edge in edges]
 
         mutation = """
         mutation ReportFulfillmentOrderProgress($id: ID!) {
@@ -201,8 +215,8 @@ class ShopifyService:
         }
         """
         success = True
-        for edge in edges:
-            res = self._execute(mutation, {"id": edge["node"]["id"]})
+        for fulfillment_order_id in fulfillment_order_ids:
+            res = self._execute(mutation, {"id": fulfillment_order_id})
             errors = res.get("fulfillmentOrderReportProgress", {}).get("userErrors", [])
             success = success and len(errors) == 0
         return success

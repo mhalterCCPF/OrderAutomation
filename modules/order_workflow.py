@@ -72,7 +72,9 @@ class WorkflowOrchestrator:
                     self.shopify.attach_pdf_metafield(order_id, str(pdf_path))
 
             if mark_in_progress:
-                self.shopify.start_fulfillment_processing(order_id)
+                self.shopify.start_fulfillment_processing(
+                    order_id, order.get("open_fulfillment_order_ids")
+                )
 
             if self.config.get("queue_multi_print_orders", False):
                 self._queue_prints(normalized_order, assets_dir)
