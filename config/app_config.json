@@ -1,0 +1,17 @@
+{
+    "packing_slip": true,
+    "print_mailing_label": false,
+    "queue_multi_print_orders": true,
+    "cleanup": false,
+    "eufymake_dir": "C:\\Users\\micha\\PrintFolder",
+    "downloaded_assets_dir": "C:/Users/micha/DownloadedAssets",
+    "packing_slip_dir": "C:/Users/micha/PackingSlip",
+    "gcs_bucket_name": "ccpf_products_1_test",
+    "company": {
+        "name": "963 Vibes",
+        "address_line1": "",
+        "city_state_zip": "",
+        "email": "contact@963vibes.com",
+        "website": "www.963vibes.com"
+    }
+}

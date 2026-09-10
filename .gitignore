@@ -5,4 +5,4 @@ __pycache__/
 # secrets - never commit
 secrets.json
 gcp_credentials.json
-app_config.json
+
