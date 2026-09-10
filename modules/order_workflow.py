@@ -37,7 +37,7 @@ class WorkflowOrchestrator:
         self.shopify.update_order_tags(order["id"], tags)
         return self._execute_pipeline(order, mark_in_progress=False)
 
-    def _execute_pipeline(self, order: dict, mark_in_progress: bool) -> tuple[bool, str]:
+    def _execute_pipeline(self, order: dict, mark_in_progress: bool = False) -> tuple[bool, str]:
         order_name = order["name"].replace("#", "")
         order_id = order["id"]
         processed_job_ids = set()

@@ -227,6 +227,9 @@ class ShopifyService:
         Uploads local PDF to Shopify Staged Uploads and links file reference
         to an Order Metafield (custom.order_summary_pdf).
         """
+        # Without a metafield definition, the value is invisible/uneditable in Admin.
+        self._ensure_order_summary_pdf_definition()
+
         # Step 1: Request Staged Upload Target
         staged_mutation = """
         mutation StagedUploadsCreate($input: [StagedUploadInput!]!) {
@@ -286,3 +289,32 @@ class ShopifyService:
                 "value": file_gid
             }]
         })
+
+    def _ensure_order_summary_pdf_definition(self):
+        """Creates the custom.order_summary_pdf metafield definition (idempotent, once per shop)."""
+        mutation = """
+        mutation CreateOrderPdfMetafieldDefinition($definition: MetafieldDefinitionInput!) {
+          metafieldDefinitionCreate(definition: $definition) {
+            createdDefinition { id }
+            userErrors { field message code }
+          }
+        }
+        """
+        variables = {
+            "definition": {
+                "name": "Order Summary PDF",
+                "namespace": "custom",
+                "key": "order_summary_pdf",
+                "type": "file_reference",
+                "ownerType": "ORDER",
+            }
+        }
+        try:
+            res = self._execute(mutation, variables)
+        except Exception:
+            return  # Best-effort; metafieldsSet below still works without a definition.
+        errors = res.get("metafieldDefinitionCreate", {}).get("userErrors", [])
+        # "TAKEN" just means the definition already exists from a prior run.
+        unexpected = [e for e in errors if e.get("code") != "TAKEN"]
+        if unexpected:
+            raise Exception(f"Failed to create order_summary_pdf metafield definition: {unexpected}")
