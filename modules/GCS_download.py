@@ -70,7 +70,7 @@ class GCSService:
             ),
             "packing_slip": (
                 f"frame2print/{normalized_job_id}/{design_stem}_thumbnail.png",
-                job_dir / "packing_slip.png",
+                job_dir / f"{design_stem}_thumbnail.png",
             ),
         }
 

@@ -34,10 +34,10 @@ def test_download_job_assets_uses_order_design_value(tmp_path):
 
     assert result["frame"].name == "frame.png"
     assert result["picture"].name == "picture.png"
-    assert result["packing_slip"].name == "packing_slip.png"
+    assert result["packing_slip"].name == "custom_design_thumbnail.png"
     assert (tmp_path / "job123" / "frame.png").exists()
     assert (tmp_path / "job123" / "picture.png").exists()
-    assert (tmp_path / "job123" / "packing_slip.png").exists()
+    assert (tmp_path / "job123" / "custom_design_thumbnail.png").exists()
     assert service.bucket.calls == [
         "frame2print/job123/custom_design_frame_with_transparency.png",
         "frame2print/job123/custom_design_picture_with_transparency.png",
