@@ -9,6 +9,25 @@ class ConfigDialog(tk.Toplevel):
         self.title("Set Configurations")
         self.geometry("560x650")
         self.resizable(True, False)
+
+        container = ttk.Frame(self)
+        container.pack(fill="both", expand=True)
+        canvas = tk.Canvas(container, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
+        self.content_frame = ttk.Frame(canvas)
+        self.content_frame.bind(
+            "<Configure>",
+            lambda event: canvas.configure(scrollregion=canvas.bbox("all")),
+        )
+        canvas_window = canvas.create_window((0, 0), window=self.content_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.bind(
+            "<Configure>",
+            lambda event: canvas.itemconfigure(canvas_window, width=event.width),
+        )
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        canvas.bind_all("<MouseWheel>", lambda event: canvas.yview_scroll(-int(event.delta / 120), "units"))
         
         self.config = load_config()
         company = self.config.get("company", {})
@@ -29,35 +48,35 @@ class ConfigDialog(tk.Toplevel):
         self.var_company_website = tk.StringVar(value=company.get("website", ""))
 
         # UI Layout
-        ttk.Checkbutton(self, text="Packing Slip PDF", variable=self.var_summary).pack(anchor="w", padx=20, pady=10)
-        ttk.Checkbutton(self, text="Add Packing Slip to Order", variable=self.var_attach_slip).pack(anchor="w", padx=20, pady=5)
-        ttk.Checkbutton(self, text="Print Mailing Label", variable=self.var_label).pack(anchor="w", padx=20, pady=5)
-        ttk.Checkbutton(self, text="Queue multi-print orders", variable=self.var_queue).pack(anchor="w", padx=20, pady=5)
-        ttk.Checkbutton(self, text="Clean-up", variable=self.var_cleanup).pack(anchor="w", padx=20, pady=5)
+        ttk.Checkbutton(self.content_frame, text="Packing Slip PDF", variable=self.var_summary).pack(anchor="w", padx=20, pady=10)
+        ttk.Checkbutton(self.content_frame, text="Add Packing Slip to Order", variable=self.var_attach_slip).pack(anchor="w", padx=20, pady=5)
+        ttk.Checkbutton(self.content_frame, text="Print Mailing Label", variable=self.var_label).pack(anchor="w", padx=20, pady=5)
+        ttk.Checkbutton(self.content_frame, text="Queue multi-print orders", variable=self.var_queue).pack(anchor="w", padx=20, pady=5)
+        ttk.Checkbutton(self.content_frame, text="Clean-up", variable=self.var_cleanup).pack(anchor="w", padx=20, pady=5)
 
         self._add_directory_row("Print Folder:", self.var_dir)
         self._add_directory_row("Downloaded Assets Directory:", self.var_assets_dir)
         self._add_directory_row("Packing Slip Directory:", self.var_slip_dir)
 
-        ttk.Label(self, text="Company Information").pack(anchor="w", padx=20, pady=(12, 2))
+        ttk.Label(self.content_frame, text="Company Information").pack(anchor="w", padx=20, pady=(12, 2))
         self._add_text_row("Company Name:", self.var_company_name)
         self._add_text_row("Company Address:", self.var_company_address)
         self._add_text_row("City, State, ZIP:", self.var_company_city_state_zip)
         self._add_text_row("Company Email:", self.var_company_email)
         self._add_text_row("Company Website:", self.var_company_website)
 
-        ttk.Button(self, text="Save Settings", command=self._save).pack(pady=15)
+        ttk.Button(self.content_frame, text="Save Settings", command=self._save).pack(pady=15)
 
     def _add_directory_row(self, label: str, variable: tk.StringVar):
-        ttk.Label(self, text=label).pack(anchor="w", padx=20, pady=(8, 2))
-        frame = ttk.Frame(self)
+        ttk.Label(self.content_frame, text=label).pack(anchor="w", padx=20, pady=(8, 2))
+        frame = ttk.Frame(self.content_frame)
         frame.pack(fill="x", padx=20, pady=2)
         ttk.Entry(frame, textvariable=variable).pack(side="left", fill="x", expand=True)
         ttk.Button(frame, text="Browse", command=lambda: self._browse_dir(variable)).pack(side="right", padx=(5, 0))
 
     def _add_text_row(self, label: str, variable: tk.StringVar):
-        ttk.Label(self, text=label).pack(anchor="w", padx=20, pady=(5, 2))
-        ttk.Entry(self, textvariable=variable).pack(fill="x", padx=20, pady=2)
+        ttk.Label(self.content_frame, text=label).pack(anchor="w", padx=20, pady=(5, 2))
+        ttk.Entry(self.content_frame, textvariable=variable).pack(fill="x", padx=20, pady=2)
 
     def _browse_dir(self, variable: tk.StringVar):
         selected = filedialog.askdirectory(initialdir=variable.get())
