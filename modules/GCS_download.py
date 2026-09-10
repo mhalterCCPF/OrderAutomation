@@ -56,14 +56,9 @@ class GCSService:
         design_value = str(design_name or "").strip()
         if not design_value:
             raise ValueError("Cannot download GCS assets without a design name.")
-        has_png_extension = design_value.lower().endswith(".png")
-        design_stem = design_value.rsplit(".", 1)[0] if has_png_extension else design_value
-        image_name = design_value if has_png_extension else f"{design_value}.png"
+        design_stem = design_value[:-4] if design_value.lower().endswith(".png") else design_value
         job_dir = local_assets_dir / normalized_job_id
         job_dir.mkdir(parents=True, exist_ok=True)
-        packing_slip_blob = (
-            f"frame2print/{normalized_job_id}/" + (f"/{design_value}" if has_png_extension else f"{design_stem}.png")
-        )
         asset_paths = {
             "frame": (
                 f"frame2print/{normalized_job_id}/{design_stem}_frame_with_transparency.png",
@@ -74,7 +69,7 @@ class GCSService:
                 job_dir / "picture.png",
             ),
             "packing_slip": (
-                packing_slip_blob,
+                f"frame2print/{normalized_job_id}/{design_stem}_thumbnail.png",
                 job_dir / "packing_slip.png",
             ),
         }

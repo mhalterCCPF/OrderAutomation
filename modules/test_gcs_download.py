@@ -30,7 +30,7 @@ def test_download_job_assets_uses_order_design_value(tmp_path):
     service = GCSService.__new__(GCSService)
     service.bucket = BucketStub()
 
-    result = service.download_job_assets("job123", tmp_path, "custom_design")
+    result = service.download_job_assets("job123", tmp_path, "custom_design.png")
 
     assert result["frame"].name == "frame.png"
     assert result["picture"].name == "picture.png"
@@ -41,7 +41,7 @@ def test_download_job_assets_uses_order_design_value(tmp_path):
     assert service.bucket.calls == [
         "frame2print/job123/custom_design_frame_with_transparency.png",
         "frame2print/job123/custom_design_picture_with_transparency.png",
-        "frame2print/job123/custom_design.png",
+            "frame2print/job123/custom_design_thumbnail.png",
     ]
 
 
@@ -54,7 +54,7 @@ def test_download_job_assets_preserves_png_extension(tmp_path):
     assert service.bucket.calls == [
         "frame2print/job123/custom_design_frame_with_transparency.png",
         "frame2print/job123/custom_design_picture_with_transparency.png",
-        "frame2print/job123//custom_design.PNG",
+            "frame2print/job123/custom_design_thumbnail.png",
     ]
 
 
