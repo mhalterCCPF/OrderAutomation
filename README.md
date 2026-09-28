@@ -28,15 +28,19 @@ At a high level, the workflow is:
 - `app.py` — GUI launcher for the desktop app
 - `setup_and_run.bat` — Windows setup script that installs prerequisites and launches the app
 - `requirements.txt` — Python dependencies
+- `requirements-dev.txt` — additional dependencies for running tests
 - `config/app_config.json` — app behavior settings
-- `keys/secrets.json` — Shopify credentials and local secret values
-- `keys/gcp_credentials.json` — Google Cloud service account credentials
+- `keys/secrets.json` — Shopify credentials and local secret values (never commit; see Security section)
+- `keys/secrets.example.json` — placeholder template for `keys/secrets.json`
+- `keys/gcp_credentials.json` — Google Cloud service account credentials (never commit; see Security section)
+- `keys/gcp_credentials.example.json` — placeholder template for `keys/gcp_credentials.json`
 - `modules/config.py` — config and secret loading logic
 - `modules/order_workflow.py` — main order-processing orchestration
 - `modules/shopify_service.py` — Shopify API calls
-- `modules/GCS_download.py` — GCS download logic
+- `modules/gcs_download.py` — GCS download logic
 - `modules/packing_slip_pdf.py` — packing slip generation
 - `modules/gui_config.py` — configuration dialog UI
+- `tests/test_gcs_download.py` — unit tests for GCS/order asset handling
 
 ## Installation
 
@@ -153,6 +157,20 @@ The secret values include:
 - `shopify_shop_url`: Your Shopify store domain, such as `your-store.myshopify.com`
 - `shopify_access_token`: The Shopify Admin API access token used for GraphQL queries and updates
 - `gcs_creds_path`: The path to the Google Cloud credentials JSON file; by default this is set to the project’s `keys/gcp_credentials.json`
+
+## Security
+
+- Never commit `keys/secrets.json` or `keys/gcp_credentials.json` — both are excluded via `.gitignore`. Use `keys/secrets.example.json` and `keys/gcp_credentials.example.json` as templates when setting up a new environment.
+- If either file is ever accidentally committed or shared, rotate the Shopify access token in the Shopify admin and revoke/rotate the GCP service account key immediately, then verify with `git log --all --full-history -- keys/secrets.json keys/gcp_credentials.json` whether history needs to be rewritten.
+
+## Development / Testing
+
+Install test dependencies and run the test suite from the project root:
+
+```powershell
+pip install -r requirements-dev.txt
+pytest tests/ -v
+```
 
 ## Notes
 

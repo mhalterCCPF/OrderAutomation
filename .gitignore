@@ -1,8 +1,12 @@
 .venv/
 __pycache__/
 *.pyc
+.pytest_cache/
 
 # secrets - never commit
 secrets.json
 gcp_credentials.json
+
+# working/test asset staging - never commit
+tmp-assets/
 

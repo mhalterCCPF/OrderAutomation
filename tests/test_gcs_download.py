@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from modules.GCS_download import GCSService
+from modules.gcs_download import GCSService
 
 
 class FakeBlob:

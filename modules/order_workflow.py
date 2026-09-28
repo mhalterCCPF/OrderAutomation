@@ -4,7 +4,7 @@ from pathlib import Path
 from shutil import copyfile
 from typing import Callable
 
-from modules.GCS_download import GCSService
+from modules.gcs_download import GCSService
 from modules.packing_slip_pdf import generate_packing_slip_pdf
 from modules.shopify_service import ShopifyService
 
