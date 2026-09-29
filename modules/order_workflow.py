@@ -1,5 +1,7 @@
+import json
 import os
 import stat
+import uuid
 from pathlib import Path
 from shutil import copyfile
 from typing import Callable
@@ -27,6 +29,160 @@ class WorkflowOrchestrator:
         if not order:
             return False, "No unprinted orders found."
         return self._execute_pipeline(order, mark_in_progress=True)
+
+    def prepare_next_order(self) -> dict:
+        state_path = self._pending_state_path()
+        if state_path.exists():
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            return self._prepared_result(state)
+
+        order = self.shopify.get_and_lock_next_order()
+        if not order:
+            return {"status": "no_orders", "message": "No unprinted orders found."}
+
+        order_id = order["id"]
+        processed_job_ids = set()
+        try:
+            normalized_order = self._normalize_order(order)
+            assets_dir = Path(self.config["downloaded_assets_dir"])
+            print_units = []
+            missing_job_items = []
+            for item in normalized_order["line_items"]:
+                job_id = item.get("job_id")
+                if not job_id:
+                    missing_job_items.append(item.get("title") or "Unnamed item")
+                    continue
+                design_name = item.get("design") or normalized_order.get("design")
+                downloaded_assets = self.gcs.download_job_assets(job_id, assets_dir, design_name)
+                item["image_path"] = downloaded_assets["packing_slip"].resolve().as_uri()
+                processed_job_ids.add(job_id)
+                quantity = int(item.get("quantity") or 1)
+                if quantity < 1:
+                    raise ValueError(f"Invalid print quantity for {item.get('title') or job_id}.")
+                print_units.extend({"index": len(print_units), "job_id": job_id} for _ in range(quantity))
+
+            if missing_job_items:
+                raise ValueError(
+                    "No Job_ID custom attribute was found for: "
+                    f"{', '.join(missing_job_items)}. GCS downloads were not complete."
+                )
+            if not print_units:
+                raise ValueError("The order contains no line items with a Job_ID custom attribute.")
+
+            if self.config.get("packing_slip", False):
+                pdf_path = generate_packing_slip_pdf(normalized_order, self.config)
+                if self.config.get("add_packing_slip_to_order", True):
+                    self.shopify.attach_pdf_metafield(order_id, str(pdf_path))
+
+            self.shopify.start_fulfillment_processing(
+                order_id, order.get("open_fulfillment_order_ids")
+            )
+
+            state = {
+                "version": 1,
+                "token": uuid.uuid4().hex,
+                "order_id": order_id,
+                "order_name": order.get("name", "").replace("#", ""),
+                "order_tags": order.get("tags", []),
+                "job_ids": sorted(processed_job_ids),
+                "print_units": print_units,
+                "staged_units": [],
+                "completed_units": [],
+                "assets_dir": str(assets_dir.resolve()),
+                "eufymake_dir": str(Path(self.config["eufymake_dir"]).resolve()),
+                "cleanup": bool(self.config.get("cleanup", False)),
+            }
+            self._write_pending_state(state_path, state)
+            return self._prepared_result(state)
+        except Exception:
+            current_tags = set(order.get("tags", []))
+            current_tags.discard("processing")
+            current_tags.add("error_downloading")
+            self.shopify.update_order_tags(order_id, list(current_tags))
+            raise
+
+    def stage_print_unit(self, token: str, unit_index: int) -> dict:
+        state_path, state = self._load_pending_state(token)
+        if not isinstance(unit_index, int) or not 0 <= unit_index < len(state["print_units"]):
+            raise ValueError("Print unit index is out of range.")
+        unit = state["print_units"][unit_index]
+        source_dir = Path(state["assets_dir"]) / unit["job_id"]
+        destination_dir = Path(state["eufymake_dir"])
+        destination_dir.mkdir(parents=True, exist_ok=True)
+        destinations = []
+        for filename in ("picture.png", "frame.png"):
+            destination = destination_dir / filename
+            self._force_copy(source_dir / filename, destination)
+            destinations.append(str(destination.resolve()))
+
+        staged = set(state.get("staged_units", []))
+        staged.add(unit_index)
+        state["staged_units"] = sorted(staged)
+        self._write_pending_state(state_path, state)
+        return {"status": "staged", "token": token, "unit_index": unit_index, "files": destinations}
+
+    def complete_order(self, token: str) -> dict:
+        state_path, state = self._load_pending_state(token)
+        required = set(range(len(state["print_units"])))
+        if set(state.get("completed_units", [])) != required:
+            raise ValueError("Cannot complete an order until every print unit has been printed.")
+
+        tags = set(state.get("order_tags", []))
+        tags.discard("processing")
+        tags.add("files_ready")
+        if not self.shopify.update_order_tags(state["order_id"], list(tags)):
+            raise RuntimeError("Shopify did not confirm the completed order tags.")
+
+        if state.get("cleanup"):
+            for job_id in state["job_ids"]:
+                self._cleanup_job_assets(Path(state["assets_dir"]), job_id)
+        state_path.unlink()
+        return {"status": "completed", "order_name": state["order_name"]}
+
+    def complete_print_unit(self, token: str, unit_index: int) -> dict:
+        state_path, state = self._load_pending_state(token)
+        if not isinstance(unit_index, int) or not 0 <= unit_index < len(state["print_units"]):
+            raise ValueError("Print unit index is out of range.")
+        if unit_index not in state.get("staged_units", []):
+            raise ValueError("Cannot complete a print unit before its files are staged.")
+        completed = set(state.get("completed_units", []))
+        completed.add(unit_index)
+        state["completed_units"] = sorted(completed)
+        self._write_pending_state(state_path, state)
+        return {"status": "unit_completed", "token": token, "unit_index": unit_index}
+
+    def _pending_state_path(self) -> Path:
+        assets_dir = Path(self.config["downloaded_assets_dir"])
+        assets_dir.mkdir(parents=True, exist_ok=True)
+        return assets_dir / ".orderautomation_pending_order.json"
+
+    @staticmethod
+    def _write_pending_state(path: Path, state: dict) -> None:
+        temporary_path = path.with_suffix(".tmp")
+        temporary_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+        temporary_path.replace(path)
+
+    def _load_pending_state(self, token: str) -> tuple[Path, dict]:
+        path = self._pending_state_path()
+        if not path.exists():
+            raise ValueError("No prepared order is available to resume.")
+        state = json.loads(path.read_text(encoding="utf-8"))
+        if state.get("token") != token:
+            raise ValueError("The prepared order token does not match the pending order.")
+        return path, state
+
+    @staticmethod
+    def _prepared_result(state: dict) -> dict:
+        if state.get("version") != 1:
+            raise ValueError("The pending order state uses an unsupported version.")
+        return {
+            "status": "prepared",
+            "token": state["token"],
+            "order_name": state["order_name"],
+            "print_units": state["print_units"],
+            "staged_units": state.get("staged_units", []),
+            "completed_units": state.get("completed_units", []),
+        }
 
     def process_specific_order(self, order_num: str) -> tuple[bool, str]:
         order = self.shopify.get_specific_order(order_num)

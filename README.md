@@ -36,6 +36,22 @@ At a high level, the workflow is:
 - `keys/gcp_credentials.example.json` — placeholder template for `keys/gcp_credentials.json`
 - `modules/config.py` — config and secret loading logic
 - `modules/order_workflow.py` — main order-processing orchestration
+- `modules/order_automation_cli.py` — versioned JSON interface for headless integrations
+## Headless Integration
+
+The desktop application remains the normal standalone entry point. Other local programs can invoke OrderAutomation without opening Tkinter by running `python -m modules.order_automation_cli` from this repository and sending one JSON request on stdin. The command writes one JSON response to stdout; errors use status `error` and exit code 1.
+
+Protocol version 1 supports `prepare_next_order`, `stage_print_unit`, `complete_print_unit`, and `complete_order`. Preparation locks and downloads an order, then returns an ordered print-unit manifest and a resumable token. Each unit is staged just before printing; the caller acknowledges a unit only after its physical print cycle succeeds. Completion updates the order tag and performs configured cleanup. A pending order is returned again by the next prepare call, including its staged and physically completed unit indexes.
+
+Requests may include a `config` object containing non-secret keys from `DEFAULT_CONFIG` in `modules/config.py`. Runtime values override saved app settings only for that process; Shopify credentials and GCP credentials always come from OrderAutomation's own `keys/` files. The robot integration stores those runtime settings in its own ignored `config.json`, so the repositories remain independently configurable.
+
+The existing `print_mailing_label` option is currently only a placeholder. It is accepted as a configuration value but does not generate or print a label.
+
+Example prepare request:
+
+```json
+{"version":1,"action":"prepare_next_order","config":{"packing_slip":true,"cleanup":true}}
+```
 - `modules/shopify_service.py` — Shopify API calls
 - `modules/gcs_download.py` — GCS download logic
 - `modules/packing_slip_pdf.py` — packing slip generation
@@ -140,6 +156,7 @@ The app loads default settings from `DEFAULT_CONFIG` and default secrets from `D
 - `packing_slip`: Enables or disables packing slip PDF generation for each processed order.
 - `add_packing_slip_to_order`: If enabled, the generated packing slip is attached to the Shopify order as a metafield.
 - `print_mailing_label`: Controls whether mailing-label or label-print functionality is used in the workflow.
+- `print_mailing_label`: Reserved placeholder; no mailing-label generation is implemented.
 - `queue_multi_print_orders`: Lets the app queue multiple print jobs in sequence instead of handling only one at a time.
 - `cleanup`: Deletes downloaded job asset folders after the job is processed to keep the local directory clean.
 - `eufymake_dir`: Points to the folder where print-ready image files are staged for an external printing app.
