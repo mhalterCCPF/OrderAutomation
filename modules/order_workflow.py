@@ -41,21 +41,13 @@ class WorkflowOrchestrator:
             return {"status": "no_orders", "message": "No unprinted orders found."}
 
         order_id = order["id"]
-        processed_job_ids = set()
         try:
-            normalized_order = self._normalize_order(order)
-            assets_dir = Path(self.config["downloaded_assets_dir"])
+            normalized_order, assets_dir, processed_job_ids, missing_job_items, items_with_assets = (
+                self._download_order_assets(order)
+            )
             print_units = []
-            missing_job_items = []
-            for item in normalized_order["line_items"]:
-                job_id = item.get("job_id")
-                if not job_id:
-                    missing_job_items.append(item.get("title") or "Unnamed item")
-                    continue
-                design_name = item.get("design") or normalized_order.get("design")
-                downloaded_assets = self.gcs.download_job_assets(job_id, assets_dir, design_name)
-                item["image_path"] = downloaded_assets["packing_slip"].resolve().as_uri()
-                processed_job_ids.add(job_id)
+            for item, _downloaded_assets in items_with_assets:
+                job_id = item["job_id"]
                 quantity = int(item.get("quantity") or 1)
                 if quantity < 1:
                     raise ValueError(f"Invalid print quantity for {item.get('title') or job_id}.")
@@ -103,20 +95,13 @@ class WorkflowOrchestrator:
 
     def prepare_order_for_loader(self, order: dict) -> dict:
         """Download one centrally queued order for transfer to a robot loader."""
-        normalized_order = self._normalize_order(order)
-        assets_dir = Path(self.config["downloaded_assets_dir"])
+        normalized_order, _assets_dir, _processed_job_ids, missing_job_items, items_with_assets = (
+            self._download_order_assets(order)
+        )
         print_units = []
         assets_by_unit = []
-        missing_job_items = []
-
-        for item in normalized_order["line_items"]:
-            job_id = item.get("job_id")
-            if not job_id:
-                missing_job_items.append(item.get("title") or "Unnamed item")
-                continue
-            design_name = item.get("design") or normalized_order.get("design")
-            downloaded = self.gcs.download_job_assets(job_id, assets_dir, design_name)
-            item["image_path"] = downloaded["packing_slip"].resolve().as_uri()
+        for item, downloaded in items_with_assets:
+            job_id = item["job_id"]
             quantity = int(item.get("quantity") or 1)
             if quantity < 1:
                 raise ValueError(f"Invalid print quantity for {item.get('title') or job_id}.")
@@ -247,21 +232,11 @@ class WorkflowOrchestrator:
     def _execute_pipeline(self, order: dict, mark_in_progress: bool = False) -> tuple[bool, str]:
         order_name = order["name"].replace("#", "")
         order_id = order["id"]
-        processed_job_ids = set()
 
         try:
-            normalized_order = self._normalize_order(order)
-            assets_dir = Path(self.config["downloaded_assets_dir"])
-            missing_job_items = []
-            for item in normalized_order["line_items"]:
-                job_id = item.get("job_id")
-                if not job_id:
-                    missing_job_items.append(item.get("title") or "Unnamed item")
-                    continue
-                design_name = item.get("design") or normalized_order.get("design")
-                downloaded_assets = self.gcs.download_job_assets(job_id, assets_dir, design_name)
-                item["image_path"] = downloaded_assets["packing_slip"].resolve().as_uri()
-                processed_job_ids.add(job_id)
+            normalized_order, assets_dir, processed_job_ids, missing_job_items, _items_with_assets = (
+                self._download_order_assets(order)
+            )
 
             if missing_job_items:
                 item_names = ", ".join(missing_job_items)
@@ -305,6 +280,26 @@ class WorkflowOrchestrator:
                 f"Error processing Order #{order_name} "
                 f"({type(error).__name__}): {error}"
             )
+
+    def _download_order_assets(self, order: dict):
+        normalized_order = self._normalize_order(order)
+        assets_dir = Path(self.config["downloaded_assets_dir"])
+        processed_job_ids = set()
+        missing_job_items = []
+        items_with_assets = []
+
+        for item in normalized_order["line_items"]:
+            job_id = item.get("job_id")
+            if not job_id:
+                missing_job_items.append(item.get("title") or "Unnamed item")
+                continue
+            design_name = item.get("design") or normalized_order.get("design")
+            downloaded = self.gcs.download_job_assets(job_id, assets_dir, design_name)
+            item["image_path"] = downloaded["packing_slip"].resolve().as_uri()
+            processed_job_ids.add(job_id)
+            items_with_assets.append((item, downloaded))
+
+        return normalized_order, assets_dir, processed_job_ids, missing_job_items, items_with_assets
 
     def _normalize_order(self, order: dict) -> dict:
         customer = order.get("customer") or {}

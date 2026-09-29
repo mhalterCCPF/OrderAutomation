@@ -37,6 +37,14 @@ At a high level, the workflow is:
 - `modules/config.py` — config and secret loading logic
 - `modules/order_workflow.py` — main order-processing orchestration
 - `modules/order_automation_cli.py` — versioned JSON interface for headless integrations
+- `modules/shopify_service.py` — Shopify API calls
+- `modules/gcs_download.py` — GCS download logic
+- `modules/packing_slip_pdf.py` — packing slip generation
+- `modules/gui_config.py` — configuration dialog UI
+- `modules/conductor.py`, `modules/conductor_state.py`, and `modules/conductor_server.py` — Conductor polling, state, and LAN API
+- `modules/conductor_gui.py` — Conductor window
+- `tests/` — order workflow, Shopify snapshot, Conductor, and API tests
+
 ## Headless Integration
 
 The desktop application remains the normal standalone entry point. Other local programs can invoke OrderAutomation without opening Tkinter by running `python -m modules.order_automation_cli` from this repository and sending one JSON request on stdin. The command writes one JSON response to stdout; errors use status `error` and exit code 1.
@@ -52,11 +60,6 @@ Example prepare request:
 ```json
 {"version":1,"action":"prepare_next_order","config":{"packing_slip":true,"cleanup":true}}
 ```
-- `modules/shopify_service.py` — Shopify API calls
-- `modules/gcs_download.py` — GCS download logic
-- `modules/packing_slip_pdf.py` — packing slip generation
-- `modules/gui_config.py` — configuration dialog UI
-- `tests/test_gcs_download.py` — unit tests for GCS/order asset handling
 
 ## Conductor Mode
 
@@ -67,6 +70,16 @@ The Conductor creates a shared bearer token in `keys/conductor_token.txt`; provi
 Assignment applies the Shopify `processing` tag to keep the standalone Get Next Order action from claiming the same order, but fulfillment remains Unfulfilled until the loader reports successful physical printing. Conductor retries Shopify's fulfillment-progress update on subsequent polls while a completed order still appears Unfulfilled; it removes the local completed record after a later snapshot no longer includes that order. An interrupted assignment is not automatically reassigned. Select it in Active Assignments and explicitly requeue it only after reviewing the physical print state.
 
 **Pause Conductor** suspends Shopify polling only; the window, API, loader heartbeats, and order dispatch stay active. **Stop Conductor** closes the Conductor session and stops polling/new dispatch while preserving active assignments. Neither control immediately stops robot motion.
+
+### First Conductor Run
+
+1. Complete the existing Shopify/GCS setup and choose the intended GCS bucket. Start the robot dashboard separately, connect to its controller, Home, and mark at least one shelf ready.
+2. In **Set Configurations**, set **Orders Update Interval (minutes)**. The default is `15`; use a shorter value such as `3` only for supervised testing.
+3. Click **Conductor** and confirm expected orders appear in **Queued Orders**. The window shows its API port and shared token. Use `localhost` as the host on the same computer; use the Conductor computer's actual LAN IP or hostname from another computer. `0.0.0.0` is a bind address, not a client destination.
+4. On eufyLoaderRobot, click **Listen** and enter the host, port, and token. Keep the API port restricted to a trusted private LAN.
+5. Monitor **Active Assignments**, **Completed Orders not yet in Shopify**, and **Registered eufyLoaders**. Completed orders remain locally pending while Shopify still reports Unfulfilled; Conductor retries fulfillment progress and removes the local record after a later poll no longer includes the order.
+
+Orders are dispatched in ascending Shopify creation order. The `processing` tag prevents standalone **Get Next Order** from claiming an assigned order but does not change fulfillment status. Manually resetting a printed order to Unfulfilled makes it eligible to be queued again once its completion record has cleared; only do this intentionally for testing. Interrupted assignments remain locked until an operator checks the physical state and explicitly requeues them.
 
 ## Installation
 
@@ -163,9 +176,11 @@ This keeps the app running as a normal desktop application without opening a con
 
 The app loads default settings from `DEFAULT_CONFIG` and default secrets from `DEFAULT_SECRETS` in `modules/config.py`.
 
+- `orders_update_interval`: Shopify poll interval in minutes; defaults to `15`.
+- `conductor_host` / `conductor_port`: private-LAN API bind address and port; defaults to `0.0.0.0` and `8765`.
+- `loader_heartbeat_timeout`: seconds before a loader with no heartbeat is marked unavailable/interrupted; defaults to `30`.
 - `packing_slip`: Enables or disables packing slip PDF generation for each processed order.
 - `add_packing_slip_to_order`: If enabled, the generated packing slip is attached to the Shopify order as a metafield.
-- `print_mailing_label`: Controls whether mailing-label or label-print functionality is used in the workflow.
 - `print_mailing_label`: Reserved placeholder; no mailing-label generation is implemented.
 - `queue_multi_print_orders`: Lets the app queue multiple print jobs in sequence instead of handling only one at a time.
 - `cleanup`: Deletes downloaded job asset folders after the job is processed to keep the local directory clean.
