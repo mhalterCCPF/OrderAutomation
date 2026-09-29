@@ -101,6 +101,57 @@ class WorkflowOrchestrator:
             self.shopify.update_order_tags(order_id, list(current_tags))
             raise
 
+    def prepare_order_for_loader(self, order: dict) -> dict:
+        """Download one centrally queued order for transfer to a robot loader."""
+        normalized_order = self._normalize_order(order)
+        assets_dir = Path(self.config["downloaded_assets_dir"])
+        print_units = []
+        assets_by_unit = []
+        missing_job_items = []
+
+        for item in normalized_order["line_items"]:
+            job_id = item.get("job_id")
+            if not job_id:
+                missing_job_items.append(item.get("title") or "Unnamed item")
+                continue
+            design_name = item.get("design") or normalized_order.get("design")
+            downloaded = self.gcs.download_job_assets(job_id, assets_dir, design_name)
+            item["image_path"] = downloaded["packing_slip"].resolve().as_uri()
+            quantity = int(item.get("quantity") or 1)
+            if quantity < 1:
+                raise ValueError(f"Invalid print quantity for {item.get('title') or job_id}.")
+            for _ in range(quantity):
+                print_units.append({
+                    "index": len(print_units),
+                    "job_id": job_id,
+                    "title": item.get("title", ""),
+                })
+                assets_by_unit.append({
+                    "picture": downloaded["picture"],
+                    "frame": downloaded["frame"],
+                })
+
+        if missing_job_items:
+            raise ValueError(
+                "No Job_ID custom attribute was found for: "
+                f"{', '.join(missing_job_items)}. GCS downloads were not complete."
+            )
+        if not print_units:
+            raise ValueError("The order contains no line items with a Job_ID custom attribute.")
+
+        if self.config.get("packing_slip", False):
+            pdf_path = generate_packing_slip_pdf(normalized_order, self.config)
+            if self.config.get("add_packing_slip_to_order", True):
+                self.shopify.attach_pdf_metafield(order["id"], str(pdf_path))
+
+        return {
+            "order_id": order["id"],
+            "order_name": order.get("name", ""),
+            "print_units": print_units,
+            "assets_by_unit": assets_by_unit,
+            "open_fulfillment_order_ids": order.get("open_fulfillment_order_ids", []),
+        }
+
     def stage_print_unit(self, token: str, unit_index: int) -> dict:
         state_path, state = self._load_pending_state(token)
         if not isinstance(unit_index, int) or not 0 <= unit_index < len(state["print_units"]):

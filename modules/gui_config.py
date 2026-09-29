@@ -46,6 +46,12 @@ class ConfigDialog(tk.Toplevel):
         self.var_company_city_state_zip = tk.StringVar(value=company.get("city_state_zip", ""))
         self.var_company_email = tk.StringVar(value=company.get("email", ""))
         self.var_company_website = tk.StringVar(value=company.get("website", ""))
+        self.var_orders_update_interval = tk.StringVar(value=str(self.config.get("orders_update_interval", 15)))
+        self.var_conductor_host = tk.StringVar(value=self.config.get("conductor_host", "0.0.0.0"))
+        self.var_conductor_port = tk.StringVar(value=str(self.config.get("conductor_port", 8765)))
+        self.var_loader_heartbeat_timeout = tk.StringVar(
+            value=str(self.config.get("loader_heartbeat_timeout", 30))
+        )
 
         # UI Layout
         ttk.Checkbutton(self.content_frame, text="Packing Slip PDF", variable=self.var_summary).pack(anchor="w", padx=20, pady=10)
@@ -57,6 +63,10 @@ class ConfigDialog(tk.Toplevel):
         self._add_directory_row("Print Folder:", self.var_dir)
         self._add_directory_row("Downloaded Assets Directory:", self.var_assets_dir)
         self._add_directory_row("Packing Slip Directory:", self.var_slip_dir)
+        self._add_text_row("Orders Update Interval (minutes):", self.var_orders_update_interval)
+        self._add_text_row("Conductor Bind Address:", self.var_conductor_host)
+        self._add_text_row("Conductor Port:", self.var_conductor_port)
+        self._add_text_row("Loader Heartbeat Timeout (seconds):", self.var_loader_heartbeat_timeout)
 
         ttk.Label(self.content_frame, text="Company Information").pack(anchor="w", padx=20, pady=(12, 2))
         self._add_text_row("Company Name:", self.var_company_name)
@@ -84,6 +94,20 @@ class ConfigDialog(tk.Toplevel):
             variable.set(selected)
 
     def _save(self):
+        try:
+            orders_update_interval = int(self.var_orders_update_interval.get())
+            conductor_port = int(self.var_conductor_port.get())
+            loader_heartbeat_timeout = int(self.var_loader_heartbeat_timeout.get())
+            if orders_update_interval < 1 or not 1 <= conductor_port <= 65535 or loader_heartbeat_timeout < 3:
+                raise ValueError
+        except ValueError:
+            messagebox.showerror(
+                "Invalid settings",
+                "Polling interval must be positive, port must be 1 to 65535, and heartbeat timeout at least 3 seconds.",
+                parent=self,
+            )
+            return
+
         self.config["packing_slip"] = self.var_summary.get()
         self.config["add_packing_slip_to_order"] = self.var_attach_slip.get()
         self.config["print_mailing_label"] = self.var_label.get()
@@ -92,6 +116,10 @@ class ConfigDialog(tk.Toplevel):
         self.config["eufymake_dir"] = self.var_dir.get()
         self.config["downloaded_assets_dir"] = self.var_assets_dir.get()
         self.config["packing_slip_dir"] = self.var_slip_dir.get()
+        self.config["orders_update_interval"] = orders_update_interval
+        self.config["conductor_host"] = self.var_conductor_host.get().strip() or "0.0.0.0"
+        self.config["conductor_port"] = conductor_port
+        self.config["loader_heartbeat_timeout"] = loader_heartbeat_timeout
         self.config["company"] = {
             "name": self.var_company_name.get(),
             "address_line1": self.var_company_address.get(),

@@ -10,6 +10,10 @@ SECRETS_FILE = KEYS_DIR / "secrets.json"
 GCP_CREDS_FILE = KEYS_DIR / "gcp_credentials.json"
 
 DEFAULT_CONFIG = {
+    "orders_update_interval": 15,
+    "conductor_host": "0.0.0.0",
+    "conductor_port": 8765,
+    "loader_heartbeat_timeout": 30,
     "packing_slip": True,
     "add_packing_slip_to_order": True,
     "print_mailing_label": True,

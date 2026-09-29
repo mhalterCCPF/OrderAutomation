@@ -140,3 +140,43 @@ def test_cli_rejects_unsupported_protocol_and_config_keys(monkeypatch):
             "action": "prepare_next_order",
             "config": {"shopify_access_token": "should-not-be-overridden"},
         })
+
+
+def test_prepare_order_for_loader_expands_quantity_and_keeps_local_asset_paths(tmp_path):
+    class FakeGCS:
+        def download_job_assets(self, job_id, assets_dir, design_name):
+            job_dir = assets_dir / job_id
+            job_dir.mkdir(parents=True)
+            result = {}
+            for key in ("picture", "frame", "packing_slip"):
+                path = job_dir / f"{key}.png"
+                path.write_bytes(key.encode())
+                result[key] = path
+            return result
+
+    class FakeShopify:
+        pass
+
+    workflow = workflow_module.WorkflowOrchestrator.__new__(workflow_module.WorkflowOrchestrator)
+    workflow.config = {
+        "downloaded_assets_dir": str(tmp_path / "assets"),
+        "packing_slip": False,
+    }
+    workflow.gcs = FakeGCS()
+    workflow.shopify = FakeShopify()
+    order = {
+        "id": "order-2",
+        "name": "#1002",
+        "lineItems": {"edges": [{"node": {
+            "title": "Sample",
+            "quantity": 2,
+            "customAttributes": [{"key": "Job ID", "value": "job456"}],
+        }}]},
+    }
+
+    prepared = workflow.prepare_order_for_loader(order)
+
+    assert [unit["index"] for unit in prepared["print_units"]] == [0, 1]
+    assert [unit["job_id"] for unit in prepared["print_units"]] == ["job456", "job456"]
+    assert prepared["assets_by_unit"][0]["picture"].read_bytes() == b"picture"
+    assert prepared["assets_by_unit"][1]["frame"].read_bytes() == b"frame"

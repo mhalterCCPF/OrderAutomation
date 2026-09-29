@@ -6,6 +6,12 @@ __pycache__/
 # secrets - never commit
 secrets.json
 gcp_credentials.json
+conductor_token.txt
+
+# Conductor state and downloaded transfer bundles
+conductor_state.json
+conductor_state.json.tmp
+conductor_bundles/
 
 # working/test asset staging - never commit
 tmp-assets/

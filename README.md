@@ -58,6 +58,16 @@ Example prepare request:
 - `modules/gui_config.py` — configuration dialog UI
 - `tests/test_gcs_download.py` — unit tests for GCS/order asset handling
 
+## Conductor Mode
+
+Click **Conductor** in the desktop launcher to start Shopify polling and the authenticated loader API. `orders_update_interval` is measured in minutes and defaults to 15. The Conductor binds to `conductor_host` and `conductor_port` (default `0.0.0.0:8765`); allow that port only on the trusted private LAN in the host firewall. Do not expose the service to the public internet.
+
+The Conductor creates a shared bearer token in `keys/conductor_token.txt`; provide the host's LAN address, port, and token to each eufyLoaderRobot Listen prompt. Keep the token private. The Conductor stores `queued_orders`, `active_assignments`, `completed_orders`, and `registered_loaders` in memory protected by a thread lock and atomically saves them to the ignored `conductor_state.json` file. This coordinates threads in one Conductor process; do not run multiple Conductor instances against the same Shopify store.
+
+Assignment applies the Shopify `processing` tag to keep the standalone Get Next Order action from claiming the same order, but fulfillment remains Unfulfilled until the loader reports successful physical printing. Conductor retries Shopify's fulfillment-progress update on subsequent polls while a completed order still appears Unfulfilled; it removes the local completed record after a later snapshot no longer includes that order. An interrupted assignment is not automatically reassigned. Select it in Active Assignments and explicitly requeue it only after reviewing the physical print state.
+
+**Pause Conductor** suspends Shopify polling only; the window, API, loader heartbeats, and order dispatch stay active. **Stop Conductor** closes the Conductor session and stops polling/new dispatch while preserving active assignments. Neither control immediately stops robot motion.
+
 ## Installation
 
 ### 1. Install Python

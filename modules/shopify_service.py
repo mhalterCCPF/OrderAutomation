@@ -24,6 +24,69 @@ class ShopifyService:
             raise Exception(f"Shopify GraphQL Error: {res_json['errors']}")
         return res_json.get("data", {})
 
+    def get_unfulfilled_orders(self) -> list[dict]:
+        """Return all open Unfulfilled orders without changing tags or status."""
+        query = """
+        query GetUnfulfilledOrders($after: String) {
+          orders(
+            first: 100,
+            after: $after,
+            query: "status:open AND fulfillment_status:unfulfilled",
+            sortKey: ORDER_NUMBER,
+            reverse: false
+          ) {
+            edges {
+              cursor
+              node {
+                id
+                name
+                legacyResourceId
+                createdAt
+                tags
+                displayFulfillmentStatus
+                email
+                phone
+                customer { displayName firstName lastName email phone }
+                shippingAddress {
+                  name firstName lastName company address1 address2 city province
+                  provinceCode zip country countryCode phone
+                }
+                customAttributes { key value }
+                lineItems(first: 100) {
+                  edges {
+                    node {
+                      id title sku quantity variant { title }
+                      customAttributes { key value }
+                    }
+                  }
+                }
+                fulfillmentOrders(first: 10, query: "status:open") {
+                  edges { node { id } }
+                }
+              }
+            }
+            pageInfo { hasNextPage endCursor }
+          }
+        }
+        """
+        orders = []
+        cursor = None
+        while True:
+            data = self._execute(query, {"after": cursor})
+            connection = data.get("orders", {})
+            for edge in connection.get("edges", []):
+                order = edge["node"]
+                fulfillment_orders = order.pop("fulfillmentOrders", {}).get("edges", [])
+                order["open_fulfillment_order_ids"] = [edge["node"]["id"] for edge in fulfillment_orders]
+                if order.get("displayFulfillmentStatus") == "UNFULFILLED":
+                    orders.append(order)
+            page_info = connection.get("pageInfo", {})
+            if not page_info.get("hasNextPage"):
+                return orders
+            cursor = page_info.get("endCursor")
+            if not cursor:
+                raise RuntimeError("Shopify reported another order page without an end cursor.")
+
     def get_and_lock_next_order(self) -> dict | None:
         """
         Queries open, unfulfilled orders (excluding in-progress ones), 
