@@ -1,4 +1,5 @@
 {
+    "orders_update_interval": 3,
     "packing_slip": true,
     "print_mailing_label": false,
     "queue_multi_print_orders": true,

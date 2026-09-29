@@ -42,7 +42,12 @@ class ConductorWindow(tk.Toplevel):
         self.pause_button = ttk.Button(controls, text="Pause Conductor", command=self.toggle_polling)
         self.pause_button.pack(side="left")
         ttk.Button(controls, text="Stop Conductor", command=self.stop_conductor).pack(side="left", padx=(8, 0))
-        ttk.Label(controls, text=f"Loader API: {self.http_server.address[0]}:{self.http_server.address[1]}").pack(side="right")
+        bind_host, bind_port = self.http_server.address
+        if bind_host == "0.0.0.0":
+            api_text = f"API port {bind_port} | connect here: localhost"
+        else:
+            api_text = f"Connect loaders to {bind_host}:{bind_port}"
+        ttk.Label(controls, text=api_text).pack(side="right")
         self.poll_status_var = tk.StringVar(value="Polling Shopify")
         ttk.Label(self, textvariable=self.poll_status_var, padding=(10, 0, 10, 6)).pack(anchor="w")
 
@@ -112,11 +117,11 @@ class ConductorWindow(tk.Toplevel):
         self._replace_rows(self.trees["Queued Orders"], [
             (order.get("name", order_id), order_id)
             for order_id, order in state["queued_orders"].items()
-        ])
+        ], row_ids=list(state["queued_orders"]))
         self._replace_rows(self.trees["Completed Orders not yet in Shopify"], [
             (item.get("order", {}).get("name", order_id), item.get("loader_id", ""))
             for order_id, item in state["completed_orders"].items()
-        ])
+        ], row_ids=list(state["completed_orders"]))
         self._replace_rows(self.trees["Registered eufyLoaders"], [
             (loader_id, loader.get("status", "unknown"), loader.get("order_id") or "", self._format_heartbeat(loader.get("last_seen")))
             for loader_id, loader in state["registered_loaders"].items()
@@ -135,11 +140,18 @@ class ConductorWindow(tk.Toplevel):
 
     @staticmethod
     def _replace_rows(tree: ttk.Treeview, rows: list[tuple], row_ids: list[str] | None = None) -> None:
-        for item in tree.get_children():
-            tree.delete(item)
+        row_ids = row_ids or [str(index) for index in range(len(rows))]
+        desired = dict(zip(row_ids, rows))
+        for item_id in tree.get_children():
+            if item_id not in desired:
+                tree.delete(item_id)
         for index, values in enumerate(rows):
-            iid = row_ids[index] if row_ids else None
-            tree.insert("", "end", iid=iid, values=values)
+            item_id = row_ids[index]
+            if tree.exists(item_id):
+                if tuple(tree.item(item_id, "values")) != tuple(values):
+                    tree.item(item_id, values=values)
+            else:
+                tree.insert("", "end", iid=item_id, values=values)
 
     def requeue_selected(self) -> None:
         tree = self.trees["Active Assignments"]

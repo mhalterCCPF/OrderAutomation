@@ -43,6 +43,15 @@ class ConductorState:
     def _state_names() -> tuple[str, ...]:
         return ("queued_orders", "active_assignments", "completed_orders", "registered_loaders")
 
+    @staticmethod
+    def _order_sort_key(order: dict[str, Any]) -> tuple[str, int]:
+        created_at = str(order.get("createdAt", ""))
+        try:
+            legacy_id = int(order.get("legacyResourceId", 0))
+        except (TypeError, ValueError):
+            legacy_id = 0
+        return created_at, legacy_id
+
     def _save_locked(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         state = {"version": STATE_VERSION}
@@ -57,7 +66,7 @@ class ConductorState:
 
     def replace_queued_orders(self, orders: list[dict[str, Any]]) -> None:
         refreshed = {}
-        for order in orders:
+        for order in sorted(orders, key=self._order_sort_key):
             order_id = str(order["id"])
             tags = {str(tag).lower() for tag in order.get("tags", [])}
             if "processing" in tags or "files_ready" in tags:
@@ -112,8 +121,7 @@ class ConductorState:
                 if assignment:
                     if (
                         assignment.get("status") == "processing"
-                        and not assignment.get("prepared")
-                        and time.time() - assignment.get("assigned_at", last_seen) < max(120, heartbeat_timeout * 3)
+                        and time.time() - assignment.get("assigned_at", last_seen) < max(600, heartbeat_timeout * 3)
                     ):
                         continue
                     assignment["status"] = "interrupted"
@@ -133,7 +141,11 @@ class ConductorState:
                 return None
             if any(item.get("loader_id") == loader_id for item in self.active_assignments.values()):
                 return None
-            for order_id, order in list(self.queued_orders.items()):
+            candidates = sorted(
+                self.queued_orders.items(),
+                key=lambda item: self._order_sort_key(item[1]),
+            )
+            for order_id, order in candidates:
                 assignment = {
                     "order_id": order_id,
                     "loader_id": loader_id,
@@ -246,6 +258,10 @@ class ConductorState:
             order = assignment["order"]
             order["tags"] = [tag for tag in order.get("tags", []) if str(tag).lower() != "processing"]
             self.queued_orders[order_id] = order
+            self.queued_orders = dict(sorted(
+                self.queued_orders.items(),
+                key=lambda item: self._order_sort_key(item[1]),
+            ))
             loader = self.registered_loaders.get(assignment["loader_id"])
             if loader:
                 loader.update({"status": "unavailable", "order_id": None, "error": None})
