@@ -6,7 +6,7 @@
     "eufymake_dir": "C:\\Users\\micha\\PrintFolder",
     "downloaded_assets_dir": "C:/Users/micha/DownloadedAssets",
     "packing_slip_dir": "C:/Users/micha/PackingSlip",
-    "gcs_bucket_name": "ccpf_products_1_test",
+    "gcs_bucket_name": "ccpf_products_1",
     "company": {
         "name": "963 Vibes",
         "address_line1": "",
