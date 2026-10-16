@@ -153,7 +153,8 @@ def test_cli_rejects_unsupported_protocol_and_config_keys(monkeypatch):
 def test_prepare_order_for_loader_expands_quantity_and_keeps_local_asset_paths(tmp_path, order_snapshot):
     order_snapshot["id"] = "order-2"
     order_snapshot["name"] = "#1002"
-    order_snapshot["lineItems"][0]["customAttributes"][0]["value"] = "job456"
+    order_snapshot["line_items"][0]["job_id"] = "job456"
+    order_snapshot["line_items"][0]["custom_attributes"]["Job ID"] = "job456"
 
     class FakeGCS:
         def read_json_blob(self, path):

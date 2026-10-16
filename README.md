@@ -30,12 +30,11 @@ Each print job must have a private `order_metadata.json` beside its assets in
 line-item Job ID, not the separate API order/line submission ID. Root preview
 folders and print asset paths remain unchanged.
 
-Shopify Flow sends a complete order snapshot to CCPF's
-`/shopify_factory_from_cart` endpoint using optional `order_metadata` (a JSON
-object or JSON-encoded object string). Deploy that API change and update the
-Flow HTTP body before deploying this version of OrderAutomation. The
-[endpoint contract and copy/paste Flow body](https://github.com/mhalterCCPF/CCPFcode/blob/main/docs/shopify-order-metadata.md)
-are maintained with the API.
+CCPF's `/shopify_webhook_order_paid` endpoint receives Shopify's native
+`orders/paid` webhook and writes the complete order snapshot. The legacy
+Shopify Flow endpoint `/shopify_factory_from_cart` has been removed. The
+[webhook contract](https://github.com/mhalterCCPF/CCPFcode/blob/main/docs/shopify-order-metadata.md)
+is maintained with the API.
 
 The snapshot has `id`, `name`, `createdAt`, optional `email`/`phone`, nullable
 `customer` and `shippingAddress`, `shippingLines` as title objects, and

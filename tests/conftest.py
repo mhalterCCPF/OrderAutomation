@@ -3,36 +3,33 @@ import pytest
 
 @pytest.fixture
 def order_snapshot():
+    """Packing-slip snapshot written by the API's /shopify_webhook_order_paid endpoint."""
     return {
+        "version": 1,
         "id": "order-1",
         "name": "#1001",
-        "createdAt": "2026-10-01T12:00:00Z",
+        "created_at": "2026-10-01T12:00:00Z",
         "email": "order@example.com",
         "phone": "555-0100",
-        "customer": {
-            "displayName": "GCS Customer",
-            "email": "customer@example.com",
-            "phone": "555-0101",
-        },
-        "shippingAddress": {
+        "customer_name": "GCS Customer",
+        "shipping_address": {
             "name": "GCS Recipient",
             "address1": "123 Example St",
+            "address2": None,
             "city": "Example City",
             "province": "CA",
             "zip": "90210",
             "country": "USA",
         },
-        "shippingLines": [{"title": "Express"}],
-        "lineItems": [{
+        "shipping_method": "Express",
+        "line_items": [{
             "id": "line-1",
             "title": "GCS Product",
             "sku": "EXAMPLE",
+            "variant_title": "Example Variant",
             "quantity": 2,
-            "variantTitle": "Example Variant",
-            "customAttributes": [
-                {"key": "Job ID", "value": "job123"},
-                {"key": "_design", "value": "custom_design"},
-                {"key": "Size", "value": "6x8"},
-            ],
+            "custom_attributes": {"Job ID": "job123", "Size": "6x8"},
+            "job_id": "job123",
+            "design": "custom_design",
         }],
     }

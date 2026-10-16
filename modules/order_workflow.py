@@ -43,7 +43,7 @@ class WorkflowOrchestrator:
 
         order_id = order["id"]
         try:
-            normalized_order, assets_dir, processed_job_ids, missing_job_items, items_with_assets = (
+            normalized_order, assets_dir, processed_job_ids, items_with_assets = (
                 self._download_order_assets(order)
             )
             print_units = []
@@ -53,14 +53,6 @@ class WorkflowOrchestrator:
                 if quantity < 1:
                     raise ValueError(f"Invalid print quantity for {item.get('title') or job_id}.")
                 print_units.extend({"index": len(print_units), "job_id": job_id} for _ in range(quantity))
-
-            if missing_job_items:
-                raise ValueError(
-                    "No Job_ID custom attribute was found for: "
-                    f"{', '.join(missing_job_items)}. GCS downloads were not complete."
-                )
-            if not print_units:
-                raise ValueError("The order contains no line items with a Job_ID custom attribute.")
 
             if self.config.get("packing_slip", False):
                 pdf_path = generate_packing_slip_pdf(normalized_order, self.config)
@@ -96,7 +88,7 @@ class WorkflowOrchestrator:
 
     def prepare_order_for_loader(self, order: dict) -> dict:
         """Download one centrally queued order for transfer to a robot loader."""
-        normalized_order, _assets_dir, _processed_job_ids, missing_job_items, items_with_assets = (
+        normalized_order, _assets_dir, _processed_job_ids, items_with_assets = (
             self._download_order_assets(order)
         )
         print_units = []
@@ -116,14 +108,6 @@ class WorkflowOrchestrator:
                     "picture": downloaded["picture"],
                     "frame": downloaded["frame"],
                 })
-
-        if missing_job_items:
-            raise ValueError(
-                "No Job_ID custom attribute was found for: "
-                f"{', '.join(missing_job_items)}. GCS downloads were not complete."
-            )
-        if not print_units:
-            raise ValueError("The order contains no line items with a Job_ID custom attribute.")
 
         if self.config.get("packing_slip", False):
             pdf_path = generate_packing_slip_pdf(normalized_order, self.config)
@@ -235,19 +219,9 @@ class WorkflowOrchestrator:
         order_id = order["id"]
 
         try:
-            normalized_order, assets_dir, processed_job_ids, missing_job_items, _items_with_assets = (
+            normalized_order, assets_dir, processed_job_ids, _items_with_assets = (
                 self._download_order_assets(order)
             )
-
-            if missing_job_items:
-                item_names = ", ".join(missing_job_items)
-                raise ValueError(
-                    "No Job_ID custom attribute was found for: "
-                    f"{item_names}. GCS downloads were not complete."
-                )
-
-            if not processed_job_ids:
-                raise ValueError("The order contains no line items with a Job_ID custom attribute.")
 
             if self.config.get("packing_slip", False):
                 pdf_path = generate_packing_slip_pdf(normalized_order, self.config)
@@ -283,70 +257,50 @@ class WorkflowOrchestrator:
             )
 
     def _download_order_assets(self, order: dict):
-        assets_dir = Path(self.config["downloaded_assets_dir"])
-        processed_job_ids = set()
-        missing_job_items = []
-        items_with_assets = []
-        snapshots = {}
-        downloaded_assets = {}
-        normalized_order = None
-        first_snapshot = None
-        routed_ids = []
+        """Pair Shopify's routed line items with the webhook snapshot in GCS and download their assets.
 
+        Every design folder holds the same full-order snapshot, so one read covers the whole order.
+        """
+        routed_items = []
         for edge in order.get("lineItems", {}).get("edges", []):
             raw_item = edge["node"]
             line_id = raw_item.get("id")
-            if not line_id or line_id in routed_ids:
+            if not line_id or any(line_id == routed_id for routed_id, _ in routed_items):
                 raise ValueError("Shopify routing requires unique line-item IDs.")
-            routed_ids.append(line_id)
-            attributes = self._attributes(raw_item.get("customAttributes", []))
-            job_id = self._job_id(attributes)
+            job_id = self._job_id(self._attributes(raw_item.get("customAttributes", [])))
             if not job_id:
-                missing_job_items.append(line_id)
-                continue
+                raise ValueError(f"No Job_ID custom attribute was found for Shopify line item {line_id}.")
             if not re.fullmatch(r"[A-Za-z0-9_-]+", job_id):
                 raise ValueError(f"Invalid Job ID for Shopify line item {line_id}.")
-            metadata_path = f"frame2print/{job_id}/order_metadata.json"
-            if job_id not in snapshots:
-                snapshot = self.gcs.read_json_blob(metadata_path)
-                if snapshot.get("id") != order["id"]:
-                    raise ValueError(f"GCS metadata order ID does not match Shopify: {metadata_path}")
-                try:
-                    normalized = self._normalize_order(snapshot)
-                except ValueError as error:
-                    raise ValueError(f"Invalid GCS metadata at {metadata_path}: {error}") from error
-                if first_snapshot is not None and snapshot != first_snapshot:
-                    raise ValueError(f"GCS order snapshots disagree: {metadata_path}")
-                if normalized_order is None:
-                    first_snapshot = snapshot
-                    normalized_order = {**normalized, "line_items": []}
-                snapshots[job_id] = {
-                    raw["id"]: item
-                    for raw, item in zip(snapshot["lineItems"], normalized["line_items"])
-                }
-            item = snapshots[job_id].get(line_id)
-            if item is None or item["job_id"] != job_id:
-                raise ValueError(f"GCS metadata does not match the routed line item {line_id}: {metadata_path}")
-            design_name = item["design"]
-            if not design_name:
-                raise ValueError(f"GCS metadata line item {line_id} is missing _design: {metadata_path}")
-            asset_key = (job_id, design_name)
-            if asset_key not in downloaded_assets:
-                downloaded_assets[asset_key] = self.gcs.download_job_assets(job_id, assets_dir, design_name)
-            downloaded = downloaded_assets[asset_key]
-            item = {**item}
-            item["image_path"] = downloaded["packing_slip"].resolve().as_uri()
-            normalized_order["line_items"].append(item)
-            processed_job_ids.add(job_id)
-            items_with_assets.append((item, downloaded))
-
-        if first_snapshot is not None and set(routed_ids) != {
-            item["id"] for item in first_snapshot["lineItems"]
-        }:
-            raise ValueError("GCS metadata line items do not match the complete Shopify order.")
-        if normalized_order is None:
+            routed_items.append((line_id, job_id))
+        if not routed_items:
             raise ValueError("The order contains no line items with a Job_ID custom attribute.")
-        return normalized_order, assets_dir, processed_job_ids, missing_job_items, items_with_assets
+
+        metadata_path = f"frame2print/{routed_items[0][1]}/order_metadata.json"
+        try:
+            normalized_order = self._validate_snapshot(self.gcs.read_json_blob(metadata_path), order["id"])
+        except ValueError as error:
+            raise ValueError(f"Invalid GCS metadata at {metadata_path}: {error}") from error
+        snapshot_items = {item["id"]: item for item in normalized_order["line_items"]}
+        if set(snapshot_items) != {line_id for line_id, _ in routed_items}:
+            raise ValueError(f"GCS metadata line items do not match the Shopify order: {metadata_path}")
+
+        assets_dir = Path(self.config["downloaded_assets_dir"])
+        downloaded_assets = {}
+        items_with_assets = []
+        for line_id, job_id in routed_items:
+            item = snapshot_items[line_id]
+            if item["job_id"] != job_id or not item["design"]:
+                raise ValueError(f"GCS metadata does not match the routed line item {line_id}: {metadata_path}")
+            asset_key = (job_id, item["design"])
+            if asset_key not in downloaded_assets:
+                downloaded_assets[asset_key] = self.gcs.download_job_assets(job_id, assets_dir, item["design"])
+            downloaded = downloaded_assets[asset_key]
+            item["image_path"] = downloaded["packing_slip"].resolve().as_uri()
+            items_with_assets.append((item, downloaded))
+        normalized_order["line_items"] = [item for item, _ in items_with_assets]
+        processed_job_ids = {job_id for _, job_id in routed_items}
+        return normalized_order, assets_dir, processed_job_ids, items_with_assets
 
     @staticmethod
     def _attributes(attributes: list) -> dict:
@@ -370,80 +324,69 @@ class WorkflowOrchestrator:
             None,
         )
 
-    def _normalize_order(self, order: dict) -> dict:
-        if not isinstance(order.get("name"), str) or not order["name"].strip():
+    @staticmethod
+    def _optional_strings(values: dict, fields: tuple, label: str):
+        for field in fields:
+            if values.get(field) is not None and not isinstance(values[field], str):
+                raise ValueError(f"{label}{field} must be a string or null.")
+
+    def _validate_snapshot(self, snapshot: dict, order_id: str) -> dict:
+        """Validate the packing-slip snapshot written by /shopify_webhook_order_paid (version 1)."""
+        if snapshot.get("version") != 1:
+            raise ValueError(f"Unsupported snapshot version {snapshot.get('version')!r}.")
+        if snapshot.get("id") != order_id:
+            raise ValueError("Order ID does not match Shopify.")
+        if not isinstance(snapshot.get("name"), str) or not snapshot["name"].strip():
             raise ValueError("Order name is required.")
-        for field in ("createdAt", "email", "phone"):
-            if order.get(field) is not None and not isinstance(order[field], str):
-                raise ValueError(f"{field} must be a string or null.")
-        for field in ("customer", "shippingAddress"):
-            value = order.get(field)
-            if value is not None and (
-                not isinstance(value, dict)
-                or any(part is not None and not isinstance(part, str) for part in value.values())
-            ):
-                raise ValueError(f"{field} must be an object of string/null values or null.")
-        raw_items = order.get("lineItems")
-        if not isinstance(raw_items, list) or not raw_items:
-            raise ValueError("lineItems must be a non-empty array.")
-        shipping_lines = order.get("shippingLines", [])
-        if not isinstance(shipping_lines, list) or any(
-            not isinstance(line, dict) or not isinstance(line.get("title"), str)
-            for line in shipping_lines
+        self._optional_strings(snapshot, ("created_at", "email", "phone", "customer_name", "shipping_method"), "")
+        shipping_address = snapshot.get("shipping_address")
+        if shipping_address is not None and (
+            not isinstance(shipping_address, dict)
+            or any(part is not None and not isinstance(part, str) for part in shipping_address.values())
         ):
-            raise ValueError("shippingLines must be an array of title objects.")
-        customer = order.get("customer") or {}
-        customer_name = customer.get("displayName") or " ".join(
-            part for part in (customer.get("firstName"), customer.get("lastName")) if part
-        )
-        shipping_address = order.get("shippingAddress") or {}
+            raise ValueError("shipping_address must be an object of string/null values or null.")
+        raw_items = snapshot.get("line_items")
+        if not isinstance(raw_items, list) or not raw_items:
+            raise ValueError("line_items must be a non-empty array.")
         items = []
-        item_ids = set()
         for raw_item in raw_items:
             if not isinstance(raw_item, dict) or not isinstance(raw_item.get("id"), str) or not raw_item["id"]:
                 raise ValueError("Each line item requires an ID.")
-            if raw_item["id"] in item_ids:
+            if any(item["id"] == raw_item["id"] for item in items):
                 raise ValueError("Line-item IDs must be unique.")
-            item_ids.add(raw_item["id"])
             if not isinstance(raw_item.get("title"), str):
                 raise ValueError("Each line item requires a title.")
             quantity = raw_item.get("quantity")
             if type(quantity) is not int or quantity < 1:
                 raise ValueError("Each line item requires a positive integer quantity.")
-            for field in ("sku", "variantTitle"):
-                if raw_item.get(field) is not None and not isinstance(raw_item[field], str):
-                    raise ValueError(f"Line-item {field} must be a string or null.")
-            attributes = self._attributes(raw_item.get("customAttributes", []))
-            item_design = next(
-                (
-                    str(value).strip()
-                    for key, value in attributes.items()
-                    if str(key).strip().lower() == "_design"
-                ),
-                None,
-            )
+            self._optional_strings(raw_item, ("sku", "variant_title", "job_id", "design"), "Line-item ")
+            attributes = raw_item.get("custom_attributes") or {}
+            if not isinstance(attributes, dict) or any(
+                not isinstance(key, str) or not isinstance(value, str) for key, value in attributes.items()
+            ):
+                raise ValueError("Line-item custom_attributes must be an object of strings.")
             items.append({
-                "title": raw_item.get("title", ""),
+                "id": raw_item["id"],
+                "title": raw_item["title"],
                 "sku": raw_item.get("sku"),
-                "variant_title": raw_item.get("variantTitle"),
+                "variant_title": raw_item.get("variant_title"),
                 "quantity": quantity,
                 "custom_attributes": attributes,
                 "image_path": "",
-                "job_id": self._job_id(attributes),
-                "design": item_design,
+                "job_id": raw_item.get("job_id"),
+                "design": raw_item.get("design"),
             })
 
         return {
-            "name": order.get("name", ""),
-            "created_at": order.get("createdAt") or "",
-            "email": order.get("email") or customer.get("email"),
-            "phone": order.get("phone") or customer.get("phone"),
-            "customer_name": customer_name,
-            "shipping_address": shipping_address,
-            "shipping_method": ", ".join(line["title"] for line in shipping_lines),
+            "name": snapshot["name"],
+            "created_at": snapshot.get("created_at") or "",
+            "email": snapshot.get("email"),
+            "phone": snapshot.get("phone"),
+            "customer_name": snapshot.get("customer_name") or "",
+            "shipping_address": shipping_address or {},
+            "shipping_method": snapshot.get("shipping_method") or "",
             "line_items": items,
         }
-
     def _queue_prints(self, order: dict, assets_dir: Path):
         eufymake_dir = Path(self.config["eufymake_dir"])
         eufymake_dir.mkdir(parents=True, exist_ok=True)

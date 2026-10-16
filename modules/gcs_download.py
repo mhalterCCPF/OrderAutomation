@@ -23,16 +23,6 @@ class GCSService:
             self.client = storage.Client()
         self.bucket = self.client.bucket(bucket_name)
 
-    def download_blob_to_file(self, gcs_blob_name: str, local_destination_path: Path) -> Path:
-        """Downloads a specific blob from GCS to local directory."""
-        blob = self.bucket.blob(gcs_blob_name)
-        if not blob.exists():
-            raise FileNotFoundError(f"Blob '{gcs_blob_name}' not found in bucket '{self.bucket.name}'")
-        
-        local_destination_path.parent.mkdir(parents=True, exist_ok=True)
-        blob.download_to_filename(str(local_destination_path))
-        return local_destination_path
-
     def read_json_blob(self, gcs_blob_name: str) -> dict:
         """Reads a JSON file directly into a Python dictionary without writing to disk."""
         blob = self.bucket.blob(gcs_blob_name)
@@ -88,14 +78,11 @@ class GCSService:
         downloaded = {}
         for asset_type, (blob_name, destination) in asset_paths.items():
             try:
-                blob = self.bucket.blob(blob_name)
-                if not blob.exists():
-                    raise FileNotFoundError(
-                        f"GCS object was not found: gs://{self.bucket.name}/{blob_name}"
-                    )
-                blob.download_to_filename(str(destination))
-            except FileNotFoundError:
-                raise
+                self.bucket.blob(blob_name).download_to_filename(str(destination))
+            except NotFound as error:
+                raise FileNotFoundError(
+                    f"GCS object was not found: gs://{self.bucket.name}/{blob_name}"
+                ) from error
             except Forbidden as error:
                 raise PermissionError(
                     "GCS access was denied for "
@@ -115,20 +102,3 @@ class GCSService:
                 )
             downloaded[asset_type] = destination
         return downloaded
-
-    def fetch_order_assets(self, gcs_prefix: str, local_target_dir: Path) -> list[Path]:
-        """Downloads all files starting with a supplied prefix into a target directory."""
-        blobs = self.client.list_blobs(self.bucket, prefix=gcs_prefix)
-        downloaded_files = []
-        
-        for blob in blobs:
-            if blob.name.endswith("/"):  # Skip directory markers
-                continue
-            
-            # Extract simple filename from path
-            filename = Path(blob.name).name
-            dest_file = local_target_dir / filename
-            blob.download_to_filename(str(dest_file))
-            downloaded_files.append(dest_file)
-            
-        return downloaded_files
