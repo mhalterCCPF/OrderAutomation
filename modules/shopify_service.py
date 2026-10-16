@@ -42,20 +42,12 @@ class ShopifyService:
                 name
                 legacyResourceId
                 createdAt
-                tagnams
+                tags
                 displayFulfillmentStatus
-                email
-                phone
-                customer { displayName firstName lastName email phone }
-                shippingAddress {
-                  name firstName lastName company address1 address2 city province
-                  provinceCode zip country countryCode phone
-                }
-                customAttributes { key value }
                 lineItems(first: 100) {
                   edges {
                     node {
-                      id title sku quantity variant { title }
+                      id
                       customAttributes { key value }
                     }
                   }
@@ -108,39 +100,10 @@ class ShopifyService:
                 createdAt
                 tags
                 displayFulfillmentStatus
-                email
-                phone
-                customer {
-                  displayName
-                  firstName
-                  lastName
-                  email
-                  phone
-                }
-                shippingAddress {
-                  name
-                  firstName
-                  lastName
-                  company
-                  address1
-                  address2
-                  city
-                  province
-                  provinceCode
-                  zip
-                  country
-                  countryCode
-                  phone
-                }
-                customAttributes { key value }
                 lineItems(first: 100) {
                   edges {
                     node {
                       id
-                      title
-                      sku
-                      quantity
-                      variant { title }
                       customAttributes { key value }
                     }
                   }
@@ -189,39 +152,10 @@ class ShopifyService:
                 name
                 createdAt
                 tags
-                email
-                phone
-                customer {
-                  displayName
-                  firstName
-                  lastName
-                  email
-                  phone
-                }
-                shippingAddress {
-                  name
-                  firstName
-                  lastName
-                  company
-                  address1
-                  address2
-                  city
-                  province
-                  provinceCode
-                  zip
-                  country
-                  countryCode
-                  phone
-                }
-                customAttributes { key value }
                 lineItems(first: 100) {
                   edges {
                     node {
                       id
-                      title
-                      sku
-                      quantity
-                      variant { title }
                       customAttributes { key value }
                     }
                   }

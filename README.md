@@ -1,6 +1,6 @@
 # OrderAutomation
 
-OrderAutomation is a locally run Windows desktop app that pulls open orders from Shopify, extracts the Job_ID from each line item, downloads the matching image assets from a Google Cloud Storage bucket, and stages them for processing or printing. It can also generate a packing slip PDF and attach it back to the Shopify order when enabled.
+OrderAutomation is a locally run Windows desktop app that pulls open orders from Shopify, extracts the Job_ID from each line item, downloads matching image assets and order metadata from a Google Cloud Storage bucket, and stages them for processing or printing. It can also generate a packing slip PDF and attach it back to the Shopify order when enabled. Shopify remains the master for fulfillment status and tags; packing-slip customer data is read only from GCS.
 
 This project is designed for a small print or fulfillment workflow where a local workstation handles order intake, asset retrieval, and print staging without needing a hosted backend.
 
@@ -8,8 +8,8 @@ This project is designed for a small print or fulfillment workflow where a local
 
 The app uses:
 
-- Shopify GraphQL for order lookup and order tagging updates
-- Google Cloud Storage for asset retrieval by Job_ID
+- Shopify GraphQL for operational order lookup/routing, tags, fulfillment progress, and PDF attachment; no customer PII queries
+- Google Cloud Storage for assets and complete order snapshots by Job_ID
 - Tkinter for the desktop interface
 - WeasyPrint for packing slip PDF generation
 - a local virtual environment for Python dependencies
@@ -19,9 +19,45 @@ At a high level, the workflow is:
 1. Query Shopify for open, unfulfilled orders.
 2. Lock the order by applying a processing tag.
 3. Read the Job_ID custom attribute for each line item.
-4. Download the matching design assets from GCS.
+4. Read `frame2print/{Job_ID}/order_metadata.json` and download the matching design assets from GCS.
 5. Optionally generate and attach a packing slip PDF.
 6. Stage print-ready files in a local folder for printing or fulfillment.
+
+### Order metadata requirement
+
+Each print job must have a private `order_metadata.json` beside its assets in
+`frame2print/{design timestamp}/`. The design timestamp is the existing Shopify
+line-item Job ID, not the separate API order/line submission ID. Root preview
+folders and print asset paths remain unchanged.
+
+Shopify Flow sends a complete order snapshot to CCPF's
+`/shopify_factory_from_cart` endpoint using optional `order_metadata` (a JSON
+object or JSON-encoded object string). Deploy that API change and update the
+Flow HTTP body before deploying this version of OrderAutomation. The
+[endpoint contract and copy/paste Flow body](https://github.com/mhalterCCPF/CCPFcode/blob/main/docs/shopify-order-metadata.md)
+are maintained with the API.
+
+The snapshot has `id`, `name`, `createdAt`, optional `email`/`phone`, nullable
+`customer` and `shippingAddress`, `shippingLines` as title objects, and
+`lineItems` as a plain array. Each item includes `id`, `title`, `sku`,
+positive integer `quantity`, `variantTitle`, and string key/value
+`customAttributes`, including Job ID and `_design`. Save the full order in
+every participating design folder. Order IDs, line IDs, Job IDs, and complete
+snapshots must agree before processing.
+
+Packing-slip names, addresses, contacts, shipping methods, item descriptions,
+variants, attributes, and print quantities come only from GCS. Optional contact
+fallbacks use only the saved customer object. Shopify provides operational
+IDs/names, queue ordering, routing, tags, and fulfillment state, never fallback
+customer data. Missing/invalid metadata produces an explicit processing error,
+even with packing-slip generation disabled; older jobs require a supplied
+snapshot. There is no automatic backfill.
+
+This shared path applies to standalone/specific-order processing, CLI
+preparation, and Conductor preparation. Already-prepared CLI state and Conductor
+bundles remain resumable. Keep metadata private and grant the service account
+Storage Object Viewer access; do not expose these PII-containing JSON files
+through public asset URLs.
 
 ## Repository structure
 

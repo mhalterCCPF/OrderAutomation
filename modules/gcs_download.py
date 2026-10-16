@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 from google.cloud import storage
-from google.api_core.exceptions import Forbidden
+from google.api_core.exceptions import Forbidden, NotFound
 
 class GCSService:
     def __init__(self, bucket_name: str, credentials_path: str = None):
@@ -36,11 +36,22 @@ class GCSService:
     def read_json_blob(self, gcs_blob_name: str) -> dict:
         """Reads a JSON file directly into a Python dictionary without writing to disk."""
         blob = self.bucket.blob(gcs_blob_name)
-        if not blob.exists():
-            raise FileNotFoundError(f"JSON Blob '{gcs_blob_name}' not found in bucket.")
-        
-        content = blob.download_as_string()
-        return json.loads(content.decode("utf-8"))
+        location = f"gs://{self.bucket.name}/{gcs_blob_name}"
+        try:
+            content = blob.download_as_bytes()
+        except NotFound as error:
+            raise FileNotFoundError(f"GCS metadata was not found: {location}") from error
+        except Forbidden as error:
+            raise PermissionError(
+                f"GCS access was denied for {location}. Grant the service account Storage Object Viewer."
+            ) from error
+        try:
+            data = json.loads(content.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise ValueError(f"GCS metadata is not valid UTF-8 JSON: {location}") from error
+        if not isinstance(data, dict):
+            raise ValueError(f"GCS metadata must contain a JSON object: {location}")
+        return data
 
     def download_job_assets(
         self,

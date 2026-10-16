@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import stat
 import uuid
 from pathlib import Path
@@ -282,85 +283,164 @@ class WorkflowOrchestrator:
             )
 
     def _download_order_assets(self, order: dict):
-        normalized_order = self._normalize_order(order)
         assets_dir = Path(self.config["downloaded_assets_dir"])
         processed_job_ids = set()
         missing_job_items = []
         items_with_assets = []
+        snapshots = {}
+        downloaded_assets = {}
+        normalized_order = None
+        first_snapshot = None
+        routed_ids = []
 
-        for item in normalized_order["line_items"]:
-            job_id = item.get("job_id")
+        for edge in order.get("lineItems", {}).get("edges", []):
+            raw_item = edge["node"]
+            line_id = raw_item.get("id")
+            if not line_id or line_id in routed_ids:
+                raise ValueError("Shopify routing requires unique line-item IDs.")
+            routed_ids.append(line_id)
+            attributes = self._attributes(raw_item.get("customAttributes", []))
+            job_id = self._job_id(attributes)
             if not job_id:
-                missing_job_items.append(item.get("title") or "Unnamed item")
+                missing_job_items.append(line_id)
                 continue
-            design_name = item.get("design") or normalized_order.get("design")
-            downloaded = self.gcs.download_job_assets(job_id, assets_dir, design_name)
+            if not re.fullmatch(r"[A-Za-z0-9_-]+", job_id):
+                raise ValueError(f"Invalid Job ID for Shopify line item {line_id}.")
+            metadata_path = f"frame2print/{job_id}/order_metadata.json"
+            if job_id not in snapshots:
+                snapshot = self.gcs.read_json_blob(metadata_path)
+                if snapshot.get("id") != order["id"]:
+                    raise ValueError(f"GCS metadata order ID does not match Shopify: {metadata_path}")
+                try:
+                    normalized = self._normalize_order(snapshot)
+                except ValueError as error:
+                    raise ValueError(f"Invalid GCS metadata at {metadata_path}: {error}") from error
+                if first_snapshot is not None and snapshot != first_snapshot:
+                    raise ValueError(f"GCS order snapshots disagree: {metadata_path}")
+                if normalized_order is None:
+                    first_snapshot = snapshot
+                    normalized_order = {**normalized, "line_items": []}
+                snapshots[job_id] = {
+                    raw["id"]: item
+                    for raw, item in zip(snapshot["lineItems"], normalized["line_items"])
+                }
+            item = snapshots[job_id].get(line_id)
+            if item is None or item["job_id"] != job_id:
+                raise ValueError(f"GCS metadata does not match the routed line item {line_id}: {metadata_path}")
+            design_name = item["design"]
+            if not design_name:
+                raise ValueError(f"GCS metadata line item {line_id} is missing _design: {metadata_path}")
+            asset_key = (job_id, design_name)
+            if asset_key not in downloaded_assets:
+                downloaded_assets[asset_key] = self.gcs.download_job_assets(job_id, assets_dir, design_name)
+            downloaded = downloaded_assets[asset_key]
+            item = {**item}
             item["image_path"] = downloaded["packing_slip"].resolve().as_uri()
+            normalized_order["line_items"].append(item)
             processed_job_ids.add(job_id)
             items_with_assets.append((item, downloaded))
 
+        if first_snapshot is not None and set(routed_ids) != {
+            item["id"] for item in first_snapshot["lineItems"]
+        }:
+            raise ValueError("GCS metadata line items do not match the complete Shopify order.")
+        if normalized_order is None:
+            raise ValueError("The order contains no line items with a Job_ID custom attribute.")
         return normalized_order, assets_dir, processed_job_ids, missing_job_items, items_with_assets
 
+    @staticmethod
+    def _attributes(attributes: list) -> dict:
+        if not isinstance(attributes, list) or any(
+            not isinstance(attribute, dict)
+            or not isinstance(attribute.get("key"), str)
+            or not isinstance(attribute.get("value"), str)
+            for attribute in attributes
+        ):
+            raise ValueError("customAttributes must be a list of string key/value objects.")
+        return {attribute["key"]: attribute["value"] for attribute in attributes}
+
+    @staticmethod
+    def _job_id(attributes: dict) -> str | None:
+        return next(
+            (
+                value.strip()
+                for key, value in attributes.items()
+                if key.strip().lower().replace("_", " ").replace("-", " ") == "job id"
+            ),
+            None,
+        )
+
     def _normalize_order(self, order: dict) -> dict:
+        if not isinstance(order.get("name"), str) or not order["name"].strip():
+            raise ValueError("Order name is required.")
+        for field in ("createdAt", "email", "phone"):
+            if order.get(field) is not None and not isinstance(order[field], str):
+                raise ValueError(f"{field} must be a string or null.")
+        for field in ("customer", "shippingAddress"):
+            value = order.get(field)
+            if value is not None and (
+                not isinstance(value, dict)
+                or any(part is not None and not isinstance(part, str) for part in value.values())
+            ):
+                raise ValueError(f"{field} must be an object of string/null values or null.")
+        raw_items = order.get("lineItems")
+        if not isinstance(raw_items, list) or not raw_items:
+            raise ValueError("lineItems must be a non-empty array.")
+        shipping_lines = order.get("shippingLines", [])
+        if not isinstance(shipping_lines, list) or any(
+            not isinstance(line, dict) or not isinstance(line.get("title"), str)
+            for line in shipping_lines
+        ):
+            raise ValueError("shippingLines must be an array of title objects.")
         customer = order.get("customer") or {}
         customer_name = customer.get("displayName") or " ".join(
             part for part in (customer.get("firstName"), customer.get("lastName")) if part
         )
         shipping_address = order.get("shippingAddress") or {}
-        order_attrs = {
-            attribute["key"]: attribute.get("value", "")
-            for attribute in order.get("customAttributes", [])
-        }
-        order_design = next(
-            (
-                str(value).strip()
-                for key, value in order_attrs.items()
-                if str(key).strip().lower() == "_design"
-            ),
-            None,
-        )
         items = []
-        for edge in order.get("lineItems", {}).get("edges", []):
-            raw_item = edge["node"]
-            attributes = {
-                attribute["key"]: attribute.get("value", "")
-                for attribute in raw_item.get("customAttributes", [])
-            }
-            job_id = next(
-                (
-                    str(value).strip()
-                    for key, value in attributes.items()
-                    if str(key).strip().lower().replace("_", " ").replace("-", " ") == "job id"
-                ),
-                None,
-            )
+        item_ids = set()
+        for raw_item in raw_items:
+            if not isinstance(raw_item, dict) or not isinstance(raw_item.get("id"), str) or not raw_item["id"]:
+                raise ValueError("Each line item requires an ID.")
+            if raw_item["id"] in item_ids:
+                raise ValueError("Line-item IDs must be unique.")
+            item_ids.add(raw_item["id"])
+            if not isinstance(raw_item.get("title"), str):
+                raise ValueError("Each line item requires a title.")
+            quantity = raw_item.get("quantity")
+            if type(quantity) is not int or quantity < 1:
+                raise ValueError("Each line item requires a positive integer quantity.")
+            for field in ("sku", "variantTitle"):
+                if raw_item.get(field) is not None and not isinstance(raw_item[field], str):
+                    raise ValueError(f"Line-item {field} must be a string or null.")
+            attributes = self._attributes(raw_item.get("customAttributes", []))
             item_design = next(
                 (
                     str(value).strip()
                     for key, value in attributes.items()
                     if str(key).strip().lower() == "_design"
                 ),
-                order_design,
+                None,
             )
             items.append({
                 "title": raw_item.get("title", ""),
                 "sku": raw_item.get("sku"),
-                "variant_title": (raw_item.get("variant") or {}).get("title"),
-                "quantity": raw_item.get("quantity", 1),
+                "variant_title": raw_item.get("variantTitle"),
+                "quantity": quantity,
                 "custom_attributes": attributes,
                 "image_path": "",
-                "job_id": job_id,
+                "job_id": self._job_id(attributes),
                 "design": item_design,
             })
 
         return {
             "name": order.get("name", ""),
-            "created_at": order.get("createdAt", ""),
+            "created_at": order.get("createdAt") or "",
             "email": order.get("email") or customer.get("email"),
             "phone": order.get("phone") or customer.get("phone"),
             "customer_name": customer_name,
             "shipping_address": shipping_address,
-            "design": order_design,
+            "shipping_method": ", ".join(line["title"] for line in shipping_lines),
             "line_items": items,
         }
 

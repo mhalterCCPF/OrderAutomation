@@ -7,6 +7,13 @@ import modules.order_workflow as workflow_module
 
 
 class FakeGCS:
+    def __init__(self, metadata):
+        self.metadata = metadata
+
+    def read_json_blob(self, path):
+        assert path == "frame2print/job123/order_metadata.json"
+        return self.metadata
+
     def download_job_assets(self, job_id, assets_dir, design_name):
         job_dir = assets_dir / job_id
         job_dir.mkdir(parents=True, exist_ok=True)
@@ -30,6 +37,7 @@ class FakeShopify:
             "name": "#1001",
             "tags": ["processing"],
             "lineItems": {"edges": [{"node": {
+                "id": "line-1",
                 "title": "Sample",
                 "quantity": 2,
                 "customAttributes": [{"key": "Job ID", "value": "job123"}],
@@ -44,10 +52,10 @@ class FakeShopify:
         return True
 
 
-def _make_workflow(tmp_path, monkeypatch):
+def _make_workflow(tmp_path, monkeypatch, metadata):
     shopify = FakeShopify()
     monkeypatch.setattr(workflow_module, "ShopifyService", lambda **_kwargs: shopify)
-    monkeypatch.setattr(workflow_module, "GCSService", lambda **_kwargs: FakeGCS())
+    monkeypatch.setattr(workflow_module, "GCSService", lambda **_kwargs: FakeGCS(metadata))
     config = {
         "shopify_shop_url": "test.myshopify.com",
         "shopify_access_token": "test-token",
@@ -60,8 +68,8 @@ def _make_workflow(tmp_path, monkeypatch):
     return workflow_module.WorkflowOrchestrator(config), shopify
 
 
-def test_prepare_resumes_manifest_and_complete_waits_for_every_unit(tmp_path, monkeypatch):
-    workflow, shopify = _make_workflow(tmp_path, monkeypatch)
+def test_prepare_resumes_manifest_and_complete_waits_for_every_unit(tmp_path, monkeypatch, order_snapshot):
+    workflow, shopify = _make_workflow(tmp_path, monkeypatch, order_snapshot)
 
     prepared = workflow.prepare_next_order()
     assert prepared["status"] == "prepared"
@@ -142,8 +150,16 @@ def test_cli_rejects_unsupported_protocol_and_config_keys(monkeypatch):
         })
 
 
-def test_prepare_order_for_loader_expands_quantity_and_keeps_local_asset_paths(tmp_path):
+def test_prepare_order_for_loader_expands_quantity_and_keeps_local_asset_paths(tmp_path, order_snapshot):
+    order_snapshot["id"] = "order-2"
+    order_snapshot["name"] = "#1002"
+    order_snapshot["lineItems"][0]["customAttributes"][0]["value"] = "job456"
+
     class FakeGCS:
+        def read_json_blob(self, path):
+            assert path == "frame2print/job456/order_metadata.json"
+            return order_snapshot
+
         def download_job_assets(self, job_id, assets_dir, design_name):
             job_dir = assets_dir / job_id
             job_dir.mkdir(parents=True)
@@ -168,6 +184,7 @@ def test_prepare_order_for_loader_expands_quantity_and_keeps_local_asset_paths(t
         "id": "order-2",
         "name": "#1002",
         "lineItems": {"edges": [{"node": {
+            "id": "line-1",
             "title": "Sample",
             "quantity": 2,
             "customAttributes": [{"key": "Job ID", "value": "job456"}],
