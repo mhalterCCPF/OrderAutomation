@@ -42,7 +42,7 @@ class ShopifyService:
                 name
                 legacyResourceId
                 createdAt
-                tags
+                tagnams
                 displayFulfillmentStatus
                 email
                 phone
